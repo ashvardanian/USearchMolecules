@@ -9,18 +9,45 @@ Input:
 Output:
     - Same Parquet files augmented with conformer columns:
       - conformer_3d: binary mol block (SDF format, 2-5 KB per molecule)
-      - conformer_energy: float64 (MMFF94 energy in kcal/mol)
+      - conformer_energy: float64 (MMFF94 energy in kcal/mol, or 0.0 if MMFF failed)
     - Optional separate files:
       - data/{dataset}/sdf/*.sdf (multi-molecule SDF format)
       - data/{dataset}/mol2/*.mol2 (Tripos MOL2 for docking software)
 
 Conformer Generation Methods:
     - ETKDGv3 (default): Knowledge-based distance geometry with torsion constraints
-    - MMFF94: Force field optimization for energy minimization (optional)
+    - MMFF94: Force field optimization for energy minimization (optional, --optimizations N)
     - GPU: nvMolKit acceleration when --use-gpu is specified
+
+MMFF94 Limitations & Fallback Behavior:
+    MMFF94 force field has LIMITED COVERAGE and will fail for certain molecule types.
+    This is EXPECTED BEHAVIOR, not an error.
+
+    Unsupported molecule types:
+    - Transition metals: Pd, Pt, Ir, Ru, Rh, Au, Ag, Fe, Co, Ni, Cu, Zn
+    - Lanthanides/Actinides: La, Lu, Gd, Sm, Eu, U, Th
+    - Unusual oxidation states: S_6+6, Mn3+2, Fe2+2, Pd3+2, etc.
+    - Organometallics, coordination complexes, metallorganics
+
+    Fallback behavior when MMFF fails:
+    1. Keeps ETKDG-generated conformer (still chemically reasonable)
+    2. Sets conformer_energy = 0.0 (indicates no optimization)
+    3. Logs at DEBUG level (use logging.DEBUG to see details)
+    4. Tracks failure in stats.molecules_failed (visible in progress bar)
+    5. Continues processing remaining molecules
+
+    Expected failure rates:
+    - Drug-like molecules: ~5% (high MMFF coverage)
+    - PubChem: ~15% (includes some organometallics)
+    - Enamine REAL: ~30% (many metal catalysts)
+
+    Recommendation:
+    - Use --optimizations for drug discovery (high success rate)
+    - Skip optimization for catalysis/materials (low success rate)
 
 Energy & Similarity:
     - Energy: MMFF94 force field energy in kcal/mol (lower = more stable)
+    - Energy = 0.0: MMFF optimization was skipped (either disabled or failed)
     - Boltzmann weights: Population weights based on energy: exp(-ΔE/kT)
     - RMSD: Root Mean Square Deviation for structural similarity
     - Best practice: Select lowest-energy conformer for single-conformer storage
@@ -28,22 +55,24 @@ Energy & Similarity:
 Usage:
 
     uv run python -m usearch_molecules.prep_conformers --datasets example
-    uv run python -m usearch_molecules.prep_conformers --datasets example --profile
-    uv run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
-    uv run python -m usearch_molecules.prep_conformers --datasets example --export-sdf --export-mol2
-    uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 50 --batch-size 1000
     uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 200
+    uv run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
+    uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 50 --batch-size 1000
+    uv run python -m usearch_molecules.prep_conformers --datasets example --export-sdf --export-mol2
+
+My defaults for benchmarking:
+
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20 --use-gpu
 """
 
 import os
 import sys
 import time
-import json
 import logging
 import argparse
 from typing import Optional, Tuple, List, Dict
 from dataclasses import dataclass, asdict
-from multiprocessing import Process, cpu_count
 
 import numpy as np
 import pyarrow as pa
@@ -52,12 +81,21 @@ from tqdm import tqdm
 
 try:
     from rdkit import Chem
-    from rdkit.Chem import AllChem, Descriptors
+    from rdkit.Chem import AllChem
     from rdkit import RDLogger
 except ImportError:
     print("Error: RDKit is required for conformer generation")
     print("Install with: uv pip install 'usearch-molecules[dev]'")
     sys.exit(1)
+
+# Optional GPU acceleration with nvMolKit
+try:
+    from nvmolkit import embedMolecules, mmffOptimization
+    from nvmolkit.types import HardwareOptions
+
+    NVMOLKIT_AVAILABLE = True
+except ImportError:
+    NVMOLKIT_AVAILABLE = False
 
 # Suppress RDKit warnings about unusual atom types, charges, etc.
 # These are expected for organometallics and exotic molecules in large databases
@@ -97,29 +135,17 @@ class ConformerStats:
     @property
     def conformers_per_second(self) -> float:
         """Throughput: conformers generated per second."""
-        return (
-            self.conformers_generated / self.total_generation_time
-            if self.total_generation_time > 0
-            else 0.0
-        )
+        return self.conformers_generated / self.total_generation_time if self.total_generation_time > 0 else 0.0
 
     @property
     def avg_generation_time(self) -> float:
         """Average time to generate conformers per molecule (seconds)."""
-        return (
-            self.total_generation_time / self.molecules_processed
-            if self.molecules_processed > 0
-            else 0.0
-        )
+        return self.total_generation_time / self.molecules_processed if self.molecules_processed > 0 else 0.0
 
     @property
     def avg_optimization_time(self) -> float:
         """Average time to optimize conformers per molecule (seconds)."""
-        return (
-            self.total_optimization_time / self.molecules_processed
-            if self.molecules_processed > 0
-            else 0.0
-        )
+        return self.total_optimization_time / self.molecules_processed if self.molecules_processed > 0 else 0.0
 
     @property
     def avg_energy(self) -> float:
@@ -190,12 +216,13 @@ def optimize_conformer_mmff(
     # Set up MMFF94 force field
     props = AllChem.MMFFGetMoleculeProperties(mol)
     if props is None:
-        logger.warning(f"Could not get MMFF properties for molecule")
+        # Expected for organometallics and exotic molecules - tracked in stats
+        logger.debug(f"Could not get MMFF properties for molecule")
         return False, float("inf")
 
     ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
     if ff is None:
-        logger.warning(f"Could not create force field for conformer {conf_id}")
+        logger.debug(f"Could not create force field for conformer {conf_id}")
         return False, float("inf")
 
     # Optimize
@@ -378,6 +405,191 @@ def remove_duplicate_conformers(
     return unique_conformers
 
 
+def process_batch_to_conformers_gpu(
+    smiles_list: List[str],
+    num_conformers: int = 50,
+    optimization_iters: int = 0,
+    remove_duplicates: bool = True,
+    rmsd_threshold: float = 0.5,
+    random_seed: int = 42,
+) -> Tuple[List[Optional[bytes]], List[float], ConformerStats]:
+    """Process a batch of SMILES strings using GPU-accelerated nvMolKit.
+
+    Uses nvMolKit's batch processing for GPU-accelerated conformer generation and optimization.
+    Significantly faster than CPU for large batches.
+
+    GPU Memory Requirements:
+        - Small molecules (~10 heavy atoms): ~1-2 MB per conformer
+        - Medium molecules (~25 heavy atoms): ~5-10 MB per conformer
+        - Large molecules (~50 heavy atoms): ~20-30 MB per conformer
+        - Rule of thumb: batch_size × num_conformers × 10 MB < GPU_memory
+        - Example: 50 molecules × 100 conformers = 5000 conformers ≈ 50 GB
+
+    Args:
+        smiles_list: List of SMILES strings to process
+        num_conformers: Number of conformers to generate per molecule
+        optimization_iters: MMFF optimization iterations (0 to skip)
+        remove_duplicates: Remove duplicate conformers based on RMSD
+        rmsd_threshold: RMSD threshold for duplicate detection (Angstroms)
+        random_seed: Random seed for reproducibility
+
+    Returns:
+        Tuple of (mol_blocks, energies, stats)
+        - mol_blocks: List of byte strings, one per input SMILES (None for failures)
+        - energies: List of floats, one per input SMILES (inf for failures)
+        - stats: Performance statistics
+
+    Raises:
+        RuntimeError: If nvMolKit is not available or GPU runs out of memory
+    """
+    if not NVMOLKIT_AVAILABLE:
+        raise RuntimeError("nvMolKit is not available. Install it to use GPU acceleration.")
+
+    stats = ConformerStats()
+    generation_start = time.time()
+
+    # Pre-allocate output arrays with correct length
+    batch_size = len(smiles_list)
+    mol_blocks: List[Optional[bytes]] = [None] * batch_size
+    energies_list: List[float] = [float("inf")] * batch_size
+
+    # Parse SMILES and prepare molecules for GPU processing
+    molecules = []
+    molecule_to_batch_idx = []  # Maps molecules list index → smiles_list index
+
+    for idx, smiles in enumerate(smiles_list):
+        try:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                stats.molecules_failed += 1
+                continue
+
+            mol = Chem.AddHs(mol)
+            molecules.append(mol)
+            molecule_to_batch_idx.append(idx)
+        except Exception:
+            stats.molecules_failed += 1
+
+    if not molecules:
+        stats.total_generation_time = time.time() - generation_start
+        assert len(mol_blocks) == batch_size, f"Output size mismatch: {len(mol_blocks)} != {batch_size}"
+        assert len(energies_list) == batch_size, f"Energy size mismatch: {len(energies_list)} != {batch_size}"
+        return mol_blocks, energies_list, stats
+
+    # Configure GPU hardware options for optimal performance
+    hardware_opts = HardwareOptions(
+        preprocessingThreads=-1,  # Auto-detect CPU threads
+        batchSize=-1,  # Auto-tune batch size for GPU
+        batchesPerGpu=-1,  # Auto-tune concurrent batches
+        gpuIds=[],  # Use all available GPUs
+    )
+
+    # Set up ETKDG parameters for nvMolKit
+    params = AllChem.ETKDGv3()
+    params.randomSeed = random_seed
+    params.useRandomCoords = True  # Required for nvMolKit
+
+    # Generate conformers on GPU with proper error handling
+    try:
+        embedMolecules.EmbedMolecules(
+            molecules,
+            params,
+            confsPerMolecule=num_conformers,
+            maxIterations=-1,
+            hardwareOptions=hardware_opts,
+        )
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "out of memory" in error_msg.lower() or "cuda" in error_msg.lower():
+            total_conformers = len(molecules) * num_conformers
+            raise RuntimeError(
+                f"GPU out of memory: batch_size={len(molecules)}, conformers={num_conformers}, "
+                f"total={total_conformers}. Reduce --batch-size or --conformers."
+            ) from e
+        raise
+
+    # Count generated conformers
+    for mol in molecules:
+        stats.conformers_generated += mol.GetNumConformers()
+
+    # Optimize conformers on GPU if requested and capture energies
+    mol_energies_list: List[List[float]] = []
+    if optimization_iters > 0:
+        try:
+            # nvMolKit returns list[list[float]] - energies for each molecule's conformers
+            mol_energies_list = mmffOptimization.MMFFOptimizeMoleculesConfs(
+                molecules, maxIters=optimization_iters, hardwareOptions=hardware_opts
+            )
+            stats.conformers_optimized = stats.conformers_generated
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "out of memory" in error_msg.lower():
+                total_conformers = len(molecules) * num_conformers
+                raise RuntimeError(
+                    f"GPU OOM during optimization: batch_size={len(molecules)}, "
+                    f"conformers={num_conformers}, total={total_conformers}. "
+                    f"Reduce --batch-size or --conformers."
+                ) from e
+            raise
+
+    # Process results for each molecule
+    for mol_idx, mol in enumerate(molecules):
+        batch_idx = molecule_to_batch_idx[mol_idx]
+
+        try:
+            if mol.GetNumConformers() == 0:
+                stats.molecules_failed += 1
+                continue
+
+            # Get energies from nvMolKit or set to 0 if no optimization
+            if optimization_iters > 0 and mol_idx < len(mol_energies_list):
+                conformer_energies = mol_energies_list[mol_idx]
+                # Build (conf_id, converged, energy) tuples sorted by energy
+                energies = [
+                    (conf_id, True, conformer_energies[conf_id])
+                    for conf_id in range(min(len(conformer_energies), mol.GetNumConformers()))
+                ]
+                energies.sort(key=lambda x: x[2])
+            else:
+                # No optimization - just use first conformer with energy=0
+                energies = [(0, True, 0.0)]
+
+            if not energies:
+                stats.molecules_failed += 1
+                continue
+
+            # Remove duplicates if requested (CPU-based, can be slow)
+            if remove_duplicates and len(energies) > 1:
+                energies = remove_duplicate_conformers(mol, energies, rmsd_threshold)
+
+            # Select lowest energy conformer
+            best_conf_id = energies[0][0]
+            best_energy = energies[0][2]
+
+            # Serialize best conformer
+            mol_block = conformer_to_molblock(mol, best_conf_id)
+            mol_blocks[batch_idx] = mol_block
+            energies_list[batch_idx] = best_energy
+
+            # Update stats
+            stats.molecules_processed += 1
+            stats.sum_energy += best_energy
+            stats.min_energy = min(stats.min_energy, best_energy)
+            stats.max_energy = max(stats.max_energy, best_energy)
+
+        except Exception as e:
+            logger.debug(f"Failed to process molecule at batch index {batch_idx}: {e}")
+            stats.molecules_failed += 1
+
+    stats.total_generation_time = time.time() - generation_start
+
+    # Validate output lengths match input
+    assert len(mol_blocks) == batch_size, f"Output size mismatch: {len(mol_blocks)} != {batch_size}"
+    assert len(energies_list) == batch_size, f"Energy size mismatch: {len(energies_list)} != {batch_size}"
+
+    return mol_blocks, energies_list, stats
+
+
 def process_batch_to_conformers(
     smiles_list: List[str],
     num_conformers: int = 50,
@@ -386,7 +598,7 @@ def process_batch_to_conformers(
     rmsd_threshold: float = 0.5,
     random_seed: int = 42,
 ) -> Tuple[List[Optional[bytes]], List[float], ConformerStats]:
-    """Process a batch of SMILES strings to generate conformers efficiently.
+    """Process a batch of SMILES strings to generate conformers efficiently (CPU).
 
     Processes molecules serially but RDKit internally uses multithreading for conformer generation.
     For batch_size=1000 and num_conformers=50, generates up to 50,000 conformers
@@ -402,24 +614,24 @@ def process_batch_to_conformers(
 
     Returns:
         Tuple of (mol_blocks, energies, stats)
-        - mol_blocks: List of serialized conformers (one per molecule, lowest energy)
-        - energies: List of conformer energies
+        - mol_blocks: List of byte strings, one per input SMILES (None for failures)
+        - energies: List of floats, one per input SMILES (inf for failures)
         - stats: Performance statistics
     """
     stats = ConformerStats()
-    mol_blocks = []
-    energies_list = []
-
     generation_start = time.time()
 
+    # Pre-allocate output arrays with correct length
+    batch_size = len(smiles_list)
+    mol_blocks: List[Optional[bytes]] = [None] * batch_size
+    energies_list: List[float] = [float("inf")] * batch_size
+
     # Process molecules in batch (RDKit handles internal parallelism)
-    for smiles in smiles_list:
+    for idx, smiles in enumerate(smiles_list):
         try:
             # Parse SMILES
             mol = Chem.MolFromSmiles(smiles)
             if mol is None:
-                mol_blocks.append(None)
-                energies_list.append(float("inf"))
                 stats.molecules_failed += 1
                 continue
 
@@ -427,8 +639,6 @@ def process_batch_to_conformers(
             mol, conf_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
 
             if len(conf_ids) == 0:
-                mol_blocks.append(None)
-                energies_list.append(float("inf"))
                 stats.molecules_failed += 1
                 continue
 
@@ -464,8 +674,8 @@ def process_batch_to_conformers(
 
             # Serialize best conformer
             mol_block = conformer_to_molblock(mol, best_conf_id)
-            mol_blocks.append(mol_block)
-            energies_list.append(best_energy)
+            mol_blocks[idx] = mol_block
+            energies_list[idx] = best_energy
 
             # Update stats
             stats.molecules_processed += 1
@@ -475,11 +685,13 @@ def process_batch_to_conformers(
 
         except Exception as e:
             logger.debug(f"Failed to process SMILES {smiles}: {e}")
-            mol_blocks.append(None)
-            energies_list.append(float("inf"))
             stats.molecules_failed += 1
 
     stats.total_generation_time = time.time() - generation_start
+
+    # Validate output lengths match input
+    assert len(mol_blocks) == batch_size, f"Output size mismatch: {len(mol_blocks)} != {batch_size}"
+    assert len(energies_list) == batch_size, f"Energy size mismatch: {len(energies_list)} != {batch_size}"
 
     return mol_blocks, energies_list, stats
 
@@ -491,6 +703,7 @@ def augment_parquet_with_conformers(
     optimization_iters: int = 0,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
+    use_gpu: bool = False,
 ) -> ConformerStats:
     """Augment a single Parquet file with 3D conformers using batch processing.
 
@@ -505,6 +718,7 @@ def augment_parquet_with_conformers(
         optimization_iters: MMFF optimization iterations (0 to skip)
         remove_duplicates: Remove duplicate conformers based on RMSD
         rmsd_threshold: RMSD threshold for duplicate detection (Angstroms)
+        use_gpu: Use GPU-accelerated nvMolKit for conformer generation
 
     Returns:
         ConformerStats with performance metrics
@@ -544,8 +758,9 @@ def augment_parquet_with_conformers(
         end_idx = min((batch_idx + 1) * batch_size, len(smiles_array))
         batch_smiles = [str(s) for s in smiles_array[start_idx:end_idx]]
 
-        # Process entire batch
-        mol_blocks, energies, batch_stats = process_batch_to_conformers(
+        # Process entire batch (GPU or CPU)
+        process_fn = process_batch_to_conformers_gpu if use_gpu else process_batch_to_conformers
+        mol_blocks, energies, batch_stats = process_fn(
             batch_smiles,
             num_conformers=num_conformers,
             optimization_iters=optimization_iters,
@@ -616,11 +831,11 @@ Examples:
   # Large batch processing for efficiency
   uv run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000 --conformers 100
 
-  # Disable RMSD deduplication
-  uv run python -m usearch_molecules.prep_conformers --datasets example --remove-duplicates 0
+  # Enable RMSD deduplication (disabled by default for performance)
+  uv run python -m usearch_molecules.prep_conformers --datasets example --remove-duplicates 1
 
-  # Enable profiling
-  uv run python -m usearch_molecules.prep_conformers --datasets example --profile
+  # GPU acceleration
+  uv run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
 """
 
 
@@ -661,8 +876,8 @@ def main():
         "--remove-duplicates",
         type=int,
         choices=[0, 1],
-        default=1,
-        help="Remove duplicate conformers based on RMSD: 1=yes, 0=no (default: 1)",
+        default=0,
+        help="Remove duplicate conformers based on RMSD: 1=yes, 0=no (default: 0 for performance)",
     )
     parser.add_argument(
         "--rmsd-threshold",
@@ -685,28 +900,22 @@ def main():
         action="store_true",
         help="Export conformers to MOL2 files (for docking software)",
     )
-    parser.add_argument(
-        "--profile",
-        action="store_true",
-        help="Enable detailed performance profiling and save to JSON",
-    )
 
     args = parser.parse_args()
 
-    # Check for GPU
+    # Check for GPU/CUDA availability
     if args.use_gpu:
-        try:
-            import torch
-
-            if not torch.cuda.is_available():
-                logger.warning("GPU requested but CUDA not available, falling back to CPU")
-                args.use_gpu = False
-            else:
-                logger.info(f"GPU acceleration enabled: {torch.cuda.get_device_name(0)}")
-                # TODO: Import nvMolKit when available
-        except ImportError:
-            logger.warning("GPU requested but PyTorch not installed, falling back to CPU")
+        if not NVMOLKIT_AVAILABLE:
+            logger.warning("GPU requested but nvMolKit not installed, falling back to CPU")
             args.use_gpu = False
+        else:
+            # Try to create a HardwareOptions object to verify CUDA works
+            try:
+                _ = HardwareOptions()
+                logger.info("GPU acceleration enabled with nvMolKit")
+            except Exception as e:
+                logger.warning(f"GPU requested but CUDA initialization failed: {e}, falling back to CPU")
+                args.use_gpu = False
 
     logger.info("Generating 3D conformers with ETKDG and MMFF94")
     logger.info(
@@ -716,8 +925,7 @@ def main():
         f"Optimizations: {args.optimizations} | "
         f"Remove duplicates: {args.remove_duplicates} | "
         f"RMSD threshold: {args.rmsd_threshold} Å | "
-        f"GPU: {args.use_gpu} | "
-        f"Profile: {args.profile}"
+        f"GPU: {args.use_gpu}"
     )
 
     for dataset in args.datasets:
@@ -743,6 +951,7 @@ def main():
                     optimization_iters=args.optimizations,
                     remove_duplicates=bool(args.remove_duplicates),
                     rmsd_threshold=args.rmsd_threshold,
+                    use_gpu=args.use_gpu,
                 )
 
                 # Accumulate stats
@@ -759,22 +968,6 @@ def main():
             except Exception as e:
                 logger.error(f"Failed to process {filename}: {e}", exc_info=True)
                 raise
-
-        if args.profile and dataset_stats.molecules_processed > 0:
-            logger.info("")
-            logger.info(f"Performance Profile for {dataset}")
-            profile_data = dataset_stats.to_dict()
-            for key, value in profile_data.items():
-                if isinstance(value, float):
-                    logger.info(f"{key}: {value:.4f}")
-                else:
-                    logger.info(f"{key}: {value}")
-
-            # Save profile to JSON
-            profile_path = f"data/{dataset}/conformer_profile.json"
-            with open(profile_path, "w") as f:
-                json.dump(profile_data, f, indent=2)
-            logger.info(f"Profile saved to: {profile_path}")
 
         logger.info(f"✓ Successfully processed {dataset}")
 

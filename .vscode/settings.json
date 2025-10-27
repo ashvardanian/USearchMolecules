@@ -13,6 +13,7 @@
     "fingerprinter",
     "HNSW",
     "MACCS",
+    "metallorganics",
     "MMFF",
     "nbytes",
     "ndarray",

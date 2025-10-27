@@ -133,7 +133,7 @@ For GPU acceleration with nvMolKit, we recommend using [pixi](https://pixi.sh) w
 
 ```sh
 pixi install
-pixi run conformers --datasets example --use-gpu --conformers 20 --batch-size 20 --optimizations 20
+pixi run python -m usearch_molecules.prep_conformers --datasets example --use-gpu --conformers 20 --batch-size 20
 ```
 
 ## Usage
