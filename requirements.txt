@@ -1,10 +1,17 @@
-usearch==2.*
-stringzilla==1.*
-
+# Core dependencies
+usearch>=2.0
+stringzilla>=1.0
 numpy
-numba # For faster similarity calculation
-rdkit # For RDKit, written in C++
-jpype1 # For Chemistry Development Kit, written in Java
+pyarrow
+tqdm
 
+# Chemistry libraries
+rdkit  # For RDKit, written in C++
+jpype1  # For Chemistry Development Kit (CDK), written in Java
+
+# Performance optimization
+numba  # For faster similarity calculation
+
+# Optional: StreamLit GUI dependencies
 streamlit
 streamlit-ketcher

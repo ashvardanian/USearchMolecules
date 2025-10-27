@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "usearch-molecules"
+version = "1.0.0"
+description = "Large Chem-Informatics dataset of 7B+ molecules with binary fingerprints for drug discovery"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Ash Vardanian", email = "ash.vardanian@unum.cloud" }]
+keywords = [
+    "molecules",
+    "chemistry",
+    "drug-discovery",
+    "fingerprints",
+    "similarity-search",
+    "usearch",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+
+dependencies = [
+    "usearch>=2.0",
+    "stringzilla>=1.0",
+    "numpy",
+    "numba",
+    "rdkit",
+    "jpype1",
+    "pyarrow",
+    "tqdm",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov", "black", "ruff", "mypy"]
+streamlit = ["streamlit", "streamlit-ketcher"]
+
+[project.urls]
+Homepage = "https://github.com/ashvardanian/usearch-molecules"
+Repository = "https://github.com/ashvardanian/usearch-molecules"
+Documentation = "https://github.com/ashvardanian/usearch-molecules#readme"
+"Bug Tracker" = "https://github.com/ashvardanian/usearch-molecules/issues"
+"AWS Open Data" = "https://registry.opendata.aws/usearch-molecules/"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["usearch_molecules*"]
+exclude = ["tests*", "stats*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
