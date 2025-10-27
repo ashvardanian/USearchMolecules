@@ -240,19 +240,24 @@ Original data came from:
 
 ### Pipeline
 
+The data processing pipeline consists of 5 steps, each implemented as a standalone script:
+
 1. `prep_parquet.py`: Convert raw datasets into standardized Parquet shards with SMILES strings.
 2. `prep_encode.py`: Add molecular fingerprints (MACCS, ECFP4, FCFP4, PubChem) to Parquet files.
 3. `prep_index.py`: Build USearch similarity indexes for fast nearest neighbor search.
-4. `prep_smiles.py`: Export SMILES strings to newline-delimited `.smi` files for [StringZilla][stringzilla].
+4. `prep_conformers.py`: Generate 3D conformers using ETKDG and optionally optimize with MMFF94.
+5. `prep_smiles.py`: Export SMILES strings to newline-delimited `.smi` files for [StringZilla][stringzilla].
 
 Every script is designed to work with bigger-than-memory data.
 In other words, processing 1 TB of molecules doesn't require 1 TB of RAM.
 Everything happens in a "gliding-window" fashion, with computationally intensive parts split between processes and threads.
 
 ```sh
-python usearch_molecules/prep_schedule.py # Prepare Parquet files
-python usearch_molecules/prep_encode.py # Build USearch indexes
-python usearch_molecules/prep_smiles.py # Export SMILES new-line delimited files to simplify serving
+uv run python -m usearch_molecules.prep_parquet --datasets example
+uv run python -m usearch_molecules.prep_encode --datasets example
+uv run python -m usearch_molecules.prep_index --datasets example
+uv run python -m usearch_molecules.prep_smiles --datasets example
+uv run python -m usearch_molecules.prep_conformers --datasets example
 ```
 
 Once completed, datasets have been uploaded to S3:

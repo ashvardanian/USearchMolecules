@@ -13,13 +13,9 @@ Output:
     - data/{dataset}/parquet/*.parquet - Shards with 'smiles' column
 
 Usage:
-    # Process all available datasets (idempotent - safe to rerun)
+
     uv run python -m usearch_molecules.prep_parquet
-
-    # Process specific dataset
     uv run python -m usearch_molecules.prep_parquet --datasets example
-
-    # Control parallelism
     uv run python -m usearch_molecules.prep_parquet --datasets example --processes 8
 """
 

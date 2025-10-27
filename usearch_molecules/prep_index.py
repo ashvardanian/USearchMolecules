@@ -4,18 +4,27 @@ Builds HNSW (Hierarchical Navigable Small World) indexes using USearch for fast
 approximate nearest neighbor search on molecular fingerprints.
 
 Input:
-    - data/{dataset}/parquet/*.parquet - Parquet files with fingerprint columns
+    - data/{dataset}/parquet/*.parquet - Parquet files with fingerprint columns:
+      "maccs", "ecfp4", "fcfp4", "pubchem"
 
 Output:
-    - data/{dataset}/index-maccs.usearch - MACCS fingerprint index
-    - data/{dataset}/index-maccs+ecfp4.usearch - Hybrid MACCS+ECFP4 index
+    - data/{dataset}/index-maccs.usearch - MACCS fingerprint index (166 bits)
+    - data/{dataset}/index-maccs+ecfp4.usearch - Hybrid MACCS+ECFP4 index (2214 bits)
+
+Index Types:
+    - MACCS: 166-bit structural keys for basic similarity search
+    - Mixed: MACCS (166 bits) + ECFP4 (2048 bits) for comprehensive similarity
+
+HNSW Parameters:
+    - Construction: Multi-threaded graph building
+    - Distance: Tanimoto similarity (custom Numba-compiled metric)
+    - Accuracy: Self-recall evaluation available (optional)
 
 Usage:
-    # Process all available datasets (idempotent - safe to rerun)
-    uv run python -m usearch_molecules.prep_index
 
-    # Process specific dataset
+    uv run python -m usearch_molecules.prep_index
     uv run python -m usearch_molecules.prep_index --datasets example
+    uv run python -m usearch_molecules.prep_index --datasets example pubchem
 """
 
 import os

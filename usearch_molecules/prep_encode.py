@@ -14,16 +14,10 @@ Output:
       - pubchem: PubChem fingerprints (881 bits → 111 bytes)
 
 Usage:
-    # Process all available datasets (idempotent - safe to rerun)
+
     uv run python -m usearch_molecules.prep_encode
-
-    # Process specific dataset
     uv run python -m usearch_molecules.prep_encode --datasets example
-
-    # Skip PubChem fingerprints (CDK is slow)
     uv run python -m usearch_molecules.prep_encode --datasets example --skip-cdk
-
-    # Control parallelism
     uv run python -m usearch_molecules.prep_encode --datasets example --processes 8
 """
 

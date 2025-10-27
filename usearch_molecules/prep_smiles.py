@@ -7,14 +7,19 @@ Input:
     - data/{dataset}/parquet/*.parquet - Parquet files with SMILES column
 
 Output:
-    - data/{dataset}/smiles/*.smi - Newline-delimited SMILES files
+    - data/{dataset}/smiles/*.smi - Newline-delimited SMILES files (one per shard)
+
+Format:
+    - Each .smi file contains one SMILES string per line
+    - No headers, no delimiters, just raw SMILES strings
+    - Ideal for StringZilla memory-mapped file access
+    - Compatible with standard cheminformatics tools (RDKit, OpenBabel, CDK)
 
 Usage:
-    # Process all available datasets (idempotent - safe to rerun)
-    uv run python -m usearch_molecules.prep_smiles
 
-    # Process specific dataset
+    uv run python -m usearch_molecules.prep_smiles
     uv run python -m usearch_molecules.prep_smiles --datasets example
+    uv run python -m usearch_molecules.prep_smiles --datasets example pubchem
 """
 
 import os
