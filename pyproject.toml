@@ -96,3 +96,22 @@ python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
+
+# Pixi configuration for conda-based dependencies
+[tool.pixi.workspace]
+name = "usearch-molecules"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+# We hardcode compatible versions for RDKit and nvMolKit here to ensure proper GPU support
+[tool.pixi.dependencies]
+python = "3.12.*"
+rdkit = "==2024.09.6"
+nvmolkit = "==0.2.0"
+
+[tool.pixi.pypi-dependencies]
+usearch-molecules = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+conformers = "python -m usearch_molecules.prep_conformers"
+viz = "streamlit run streamlit_app.py"

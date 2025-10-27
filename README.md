@@ -98,8 +98,10 @@ Those come in handy if you want to test your application without downloading the
 ## Installation
 
 The project supports multiple installation profiles for different use cases.
-We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable dependency management.
-To install source for exploration & development:
+
+### Option 1: UV (Pure Python, Recommended for CPU-only)
+
+We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable Python dependency management.
 
 ```sh
 git clone https://github.com/ashvardanian/USearchMolecules.git
@@ -115,7 +117,7 @@ uv pip install -e ".[viz]"              # for visualization with StreamLit
 uv pip install -e ".[all]"              # for all features
 ```
 
-Alternatively, you can install from PyPI:
+Or install from PyPI:
 
 ```sh
 uv pip install usearch-molecules
@@ -125,16 +127,13 @@ uv pip install "usearch-molecules[viz]" # for visualization with StreamLit
 uv pip install "usearch-molecules[all]" # for all features
 ```
 
-For GPU acceleration on Ubuntu, make sure to install the required RDKit and nvMolKit dependencies.
+### Option 2: Pixi (Conda-based, Recommended for GPU acceleration)
+
+For GPU acceleration with nvMolKit, we recommend using [pixi](https://pixi.sh) which handles conda dependencies (RDKit, nvMolKit) seamlessly:
 
 ```sh
-sudo apt-get install librdkit1 rdkit-data librdkit-dev
-mkdir -p /tmp/nvMolKit /tmp/rdkit-libs
-ln -s /usr/lib/libRDKit*.so /tmp/rdkit-libs/
-git clone https://github.com/NVIDIA-Digital-Bio/nvMolKit.git /tmp/nvMolKit
-export CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc -DCUDAToolkit_ROOT=/usr/local/cuda-12.8 -DNVMOLKIT_BUILD_AGAINST_PIP_RDKIT=ON -DNVMOLKIT_BUILD_AGAINST_PIP_LIBDIR=/tmp/rdkit-libs
-  -DNVMOLKIT_BUILD_AGAINST_PIP_INCDIR=/usr/include/rdkit -DNVMOLKIT_BUILD_AGAINST_PIP_BOOSTINCLUDEDIR=/usr/include"
-uv pip install /tmp/nvMolKit/
+pixi install
+pixi run conformers --datasets example --use-gpu --conformers 20 --batch-size 20 --optimizations 20
 ```
 
 ## Usage
