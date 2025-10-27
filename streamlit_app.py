@@ -118,7 +118,7 @@ else:
     html_result_bottom_left = interactive(results_smiles[1], background=color_dark)
     html_result_bottom_right = interactive(results_smiles[2], background=color_light)
 
-    title_query_top_left = str(molecule)
+    title_query_top_left = query_smiles
     title_result_top_right = str(results_smiles[0])
     title_result_bottom_left = str(results_smiles[1])
     title_result_bottom_right = str(results_smiles[2])
