@@ -513,24 +513,52 @@ def process_batch_to_conformers_gpu(
         stats.conformers_generated += mol.GetNumConformers()
 
     # Optimize conformers on GPU if requested and capture energies
-    mol_energies_list: List[List[float]] = []
+    # Pre-filter molecules to avoid nvMolKit crashes on MMFF-incompatible molecules
+    mol_energies_list: List[List[float]] = [[] for _ in molecules]  # Initialize with empty lists
     if optimization_iters > 0:
-        try:
-            # nvMolKit returns list[list[float]] - energies for each molecule's conformers
-            mol_energies_list = mmffOptimization.MMFFOptimizeMoleculesConfs(
-                molecules, maxIters=optimization_iters, hardwareOptions=hardware_opts
+        # Pre-check each molecule for MMFF compatibility (same check nvMolKit does internally)
+        valid_indices = []
+        valid_molecules = []
+        invalid_indices = []
+
+        for idx, mol in enumerate(molecules):
+            props = AllChem.MMFFGetMoleculeProperties(mol)
+            if props is not None:
+                valid_indices.append(idx)
+                valid_molecules.append(mol)
+            else:
+                invalid_indices.append(idx)
+                logger.debug(f"Molecule {idx} in batch cannot be MMFF optimized (organometallic/exotic atoms)")
+
+        # Log MMFF filtering stats
+        if invalid_indices:
+            logger.info(
+                f"Pre-filtered batch: {len(valid_molecules)}/{len(molecules)} molecules MMFF-compatible, "
+                f"{len(invalid_indices)} will use ETKDG conformers with energy=0.0"
             )
-            stats.conformers_optimized = stats.conformers_generated
-        except RuntimeError as e:
-            error_msg = str(e)
-            if "out of memory" in error_msg.lower():
-                total_conformers = len(molecules) * num_conformers
-                raise RuntimeError(
-                    f"GPU OOM during optimization: batch_size={len(molecules)}, "
-                    f"conformers={num_conformers}, total={total_conformers}. "
-                    f"Reduce --batch-size or --conformers."
-                ) from e
-            raise
+
+        # Only optimize MMFF-compatible molecules on GPU
+        if valid_molecules:
+            try:
+                # nvMolKit returns list[list[float]] - energies for each valid molecule's conformers
+                valid_energies = mmffOptimization.MMFFOptimizeMoleculesConfs(
+                    valid_molecules, maxIters=optimization_iters, hardwareOptions=hardware_opts
+                )
+                # Map results back to original molecule indices
+                for valid_idx, orig_idx in enumerate(valid_indices):
+                    mol_energies_list[orig_idx] = valid_energies[valid_idx]
+
+                stats.conformers_optimized += sum(len(e) for e in valid_energies)
+            except RuntimeError as e:
+                error_msg = str(e)
+                if "out of memory" in error_msg.lower():
+                    total_conformers = len(valid_molecules) * num_conformers
+                    raise RuntimeError(
+                        f"GPU OOM during optimization: batch_size={len(valid_molecules)}, "
+                        f"conformers={num_conformers}, total={total_conformers}. "
+                        f"Reduce --batch-size or --conformers."
+                    ) from e
+                raise
 
     # Process results for each molecule
     for mol_idx, mol in enumerate(molecules):
@@ -542,7 +570,8 @@ def process_batch_to_conformers_gpu(
                 continue
 
             # Get energies from nvMolKit or set to 0 if no optimization
-            if optimization_iters > 0 and mol_idx < len(mol_energies_list):
+            # Note: mol_energies_list[mol_idx] will be empty for MMFF-incompatible molecules
+            if optimization_iters > 0 and mol_idx < len(mol_energies_list) and mol_energies_list[mol_idx]:
                 conformer_energies = mol_energies_list[mol_idx]
                 # Build (conf_id, converged, energy) tuples sorted by energy
                 energies = [
@@ -551,7 +580,7 @@ def process_batch_to_conformers_gpu(
                 ]
                 energies.sort(key=lambda x: x[2])
             else:
-                # No optimization - just use first conformer with energy=0
+                # No optimization OR MMFF-incompatible - keep ETKDG conformer with energy=0
                 energies = [(0, True, 0.0)]
 
             if not energies:
