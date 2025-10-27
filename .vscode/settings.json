@@ -17,6 +17,7 @@
     "nbytes",
     "ndarray",
     "numba",
+    "organometallics",
     "pubchem",
     "pyarrow",
     "RDKit",

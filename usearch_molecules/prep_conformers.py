@@ -144,7 +144,7 @@ def generate_conformer_etkdg(
     num_confs: int = 10,
     random_seed: int = 42,
     use_random_coords: bool = False,
-) -> List[int]:
+) -> Tuple[Chem.Mol, List[int]]:
     """Generate conformers using ETKDGv3 (Experimental Torsion-angle Knowledge Distance Geometry).
 
     ETKDGv3 is the default since RDKit 2024.03 and uses torsion angle preferences
@@ -152,15 +152,15 @@ def generate_conformer_etkdg(
     without requiring subsequent energy minimization.
 
     Args:
-        mol: RDKit molecule object (must have explicit hydrogens)
+        mol: RDKit molecule object
         num_confs: Number of conformers to generate
         random_seed: Random seed for reproducibility
         use_random_coords: Use random coordinates instead of ETKDG (faster but lower quality)
 
     Returns:
-        List of conformer IDs
+        Tuple of (molecule with hydrogens and conformers, list of conformer IDs)
     """
-    # Add hydrogens if not present
+    # Add hydrogens if not present (returns new molecule)
     mol = Chem.AddHs(mol)
 
     params = AllChem.ETKDGv3()
@@ -169,7 +169,7 @@ def generate_conformer_etkdg(
     params.useRandomCoords = use_random_coords
 
     conf_ids = AllChem.EmbedMultipleConfs(mol, numConfs=num_confs, params=params)
-    return list(conf_ids)
+    return mol, list(conf_ids)
 
 
 def optimize_conformer_mmff(
@@ -388,7 +388,7 @@ def process_batch_to_conformers(
 ) -> Tuple[List[Optional[bytes]], List[float], ConformerStats]:
     """Process a batch of SMILES strings to generate conformers efficiently.
 
-    This processes molecules in batch for better RDKit performance.
+    Processes molecules serially but RDKit internally uses multithreading for conformer generation.
     For batch_size=1000 and num_conformers=50, generates up to 50,000 conformers
     which are then filtered and regrouped into 1000 outputs.
 
@@ -412,6 +412,7 @@ def process_batch_to_conformers(
 
     generation_start = time.time()
 
+    # Process molecules in batch (RDKit handles internal parallelism)
     for smiles in smiles_list:
         try:
             # Parse SMILES
@@ -422,8 +423,8 @@ def process_batch_to_conformers(
                 stats.molecules_failed += 1
                 continue
 
-            # Generate conformers
-            conf_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
+            # Generate conformers (returns molecule with hydrogens + conf IDs)
+            mol, conf_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
 
             if len(conf_ids) == 0:
                 mol_blocks.append(None)
@@ -436,15 +437,26 @@ def process_batch_to_conformers(
             # Optimize conformers if requested
             if optimization_iters > 0:
                 energies = optimize_all_conformers_mmff(mol, optimization_iters)
-                stats.conformers_optimized += len(energies)
 
-                # Remove duplicates if requested
-                if remove_duplicates and len(energies) > 1:
-                    energies = remove_duplicate_conformers(mol, energies, rmsd_threshold)
+                # Filter out conformers that failed MMFF (have infinite energy)
+                valid_energies = [e for e in energies if e[2] != float("inf")]
 
-                # Select lowest energy conformer
-                best_conf_id = energies[0][0]
-                best_energy = energies[0][2]
+                if valid_energies:
+                    # Optimization succeeded for at least some conformers
+                    stats.conformers_optimized += len(valid_energies)
+
+                    # Remove duplicates if requested
+                    if remove_duplicates and len(valid_energies) > 1:
+                        valid_energies = remove_duplicate_conformers(mol, valid_energies, rmsd_threshold)
+
+                    # Select lowest energy conformer
+                    best_conf_id = valid_energies[0][0]
+                    best_energy = valid_energies[0][2]
+                else:
+                    # MMFF failed for all conformers - fall back to unoptimized
+                    logger.debug(f"MMFF optimization failed for {smiles}, using unoptimized conformer")
+                    best_conf_id = conf_ids[0]
+                    best_energy = 0.0
             else:
                 # No optimization - just pick first conformer
                 best_conf_id = conf_ids[0]
@@ -468,9 +480,6 @@ def process_batch_to_conformers(
             stats.molecules_failed += 1
 
     stats.total_generation_time = time.time() - generation_start
-
-    # Optimization time is already tracked in optimize_all_conformers_mmff
-    # For batch processing, we include it in total_generation_time
 
     return mol_blocks, energies_list, stats
 
