@@ -1,3 +1,17 @@
+"""Interactive web app for molecular similarity search with 3D visualization.
+
+Search for similar molecules using SMILES notation and view results in an interactive
+3D viewer. Uses USearch for fast approximate nearest neighbor search on molecular
+fingerprints, with py3Dmol for WebGL-based molecular visualization.
+
+Run with:
+    uv run streamlit run streamlit_app.py
+
+Learn more:
+- SMILES: https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system
+- Streamlit: https://docs.streamlit.io
+- 3Dmol.js: https://3dmol.csb.pitt.edu
+"""
 import py3Dmol
 import streamlit as st
 import streamlit.components.v1 as components
@@ -43,6 +57,7 @@ on billion-scale molecule collections.
 
 @st.cache_resource
 def get_dataset():
+    """Load and cache the molecular dataset with USearch index."""
     data = FingerprintedDataset.open("data/example", shape=shape_mixed)
     data.index.expansion_search = expansion_search
     return data
@@ -60,6 +75,22 @@ def interactive(
     surface=False,
     opacity=0.5,
 ):
+    """Generate interactive 3D molecular visualization using py3Dmol.
+
+    Converts SMILES to 3D structure with MMFF optimization and renders as HTML.
+
+    Args:
+        smiles: SMILES string of molecule to visualize
+        width: Viewer width in pixels
+        height: Viewer height in pixels
+        background: Background color
+        style: Visualization style (line, stick, sphere, or carton)
+        surface: Whether to show molecular surface
+        opacity: Surface opacity if surface is enabled
+
+    Returns:
+        HTML string containing 3Dmol.js viewer
+    """
     molecule = Chem.MolFromSmiles(smiles)
     molecule = Chem.AddHs(molecule)
     AllChem.EmbedMolecule(molecule)

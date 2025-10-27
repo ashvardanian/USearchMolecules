@@ -1,3 +1,13 @@
+"""Dataset management for molecular fingerprints stored in sharded Parquet files.
+
+Provides efficient loading and searching of molecular datasets using USearch for
+similarity search. Datasets are organized into shards for scalable storage and
+memory-mapped access, supporting hybrid fingerprints (MACCS, ECFP4, FCFP4).
+
+Example usage:
+    dataset = FingerprintedDataset.open("data/pubchem", shape=shape_maccs)
+    results = dataset.search("CC(=O)OC1=CC=CC=C1C(=O)O", count=10)  # Aspirin
+"""
 from __future__ import annotations
 import os
 import random
@@ -76,10 +86,12 @@ class FingerprintedEntry:
 
 
 def shard_name(dir: str, from_index: int, to_index: int, kind: str):
+    """Generate standardized shard filename with zero-padded indices."""
     return os.path.join(dir, kind, f"{from_index:0>10}-{to_index:0>10}.{kind}")
 
 
 def write_table(table: pa.Table, path_out: os.PathLike):
+    """Write PyArrow table to Parquet file with optimized settings for molecular data."""
     return pq.write_table(
         table,
         path_out,
@@ -116,6 +128,7 @@ class FingerprintedShard:
         return self.load_smiles()
 
     def load_table(self, columns=None, view=False) -> pa.Table:
+        """Load Parquet table into memory with optional memory-mapping and column filtering."""
         if not self.table_cached:
             self.table_cached = pq.read_table(
                 self.table_path,
@@ -125,6 +138,7 @@ class FingerprintedShard:
         return self.table_cached
 
     def load_smiles(self) -> sz.Strs:
+        """Load SMILES strings using StringZilla for fast line-by-line access."""
         if not self.smiles_caches:
             self.smiles_caches = sz.Str(sz.File(self.smiles_path)).splitlines()
         return self.smiles_caches
@@ -143,7 +157,16 @@ class FingerprintedDataset:
         shape: Optional[FingerprintShape] = None,
         max_shards: Optional[int] = None,
     ) -> FingerprintedDataset:
-        """Gather a list of files forming the dataset."""
+        """Open a sharded molecular dataset and optionally load its USearch index.
+
+        Args:
+            dir: Root directory containing parquet/ and smiles/ subdirectories
+            shape: Fingerprint configuration (determines which index file to load)
+            max_shards: Optional limit on number of shards to load (useful for testing)
+
+        Returns:
+            FingerprintedDataset with loaded shards and index (if available)
+        """
 
         if dir is None:
             return FingerprintedDataset(dir=None, shards=[], shape=shape)
@@ -181,6 +204,7 @@ class FingerprintedDataset:
         return FingerprintedDataset(dir=dir, shards=shards, shape=shape, index=index)
 
     def shard_containing(self, key: int) -> FingerprintedShard:
+        """Find the shard containing a given key/index."""
         for shard in self.shards:
             if shard.first_key <= key and key <= (shard.first_key + SHARD_SIZE):
                 return shard
@@ -191,7 +215,16 @@ class FingerprintedDataset:
         shape: Optional[FingerprintShape] = None,
         shuffle: bool = False,
     ) -> Tuple[List[str], List[int], np.ndarray]:
-        """Load the first part of the dataset. Mostly used for preview and testing."""
+        """Load the first N rows from the dataset for preview and testing.
+
+        Args:
+            max_rows: Maximum number of molecules to load
+            shape: Fingerprint configuration (uses dataset default if None)
+            shuffle: Whether to randomly shuffle the results
+
+        Returns:
+            Tuple of (SMILES strings, keys, fingerprint matrix)
+        """
 
         if self.dir is None:
             return None
@@ -235,7 +268,16 @@ class FingerprintedDataset:
         count: int = 10,
         log: bool = False,
     ) -> List[Tuple[int, str, float]]:
-        """Search for similar molecules in the whole dataset."""
+        """Search for similar molecules using approximate nearest neighbor search.
+
+        Args:
+            smiles: Query molecule in SMILES notation
+            count: Number of similar molecules to return
+            log: Whether to log progress (can be a callback function)
+
+        Returns:
+            List of tuples (key, smiles, distance) sorted by similarity
+        """
 
         fingers: tuple = smiles_to_maccs_ecfp4_fcfp4(smiles)
         entry = FingerprintedEntry.from_parts(
@@ -260,6 +302,7 @@ class FingerprintedDataset:
         return len(self.index)
 
     def random_smiles(self) -> str:
+        """Get a random SMILES string from the dataset."""
         shard_idx = random.randint(0, len(self.shards) - 1)
         shard = self.shards[shard_idx]
         row = random.randint(0, len(shard.smiles) - 1)

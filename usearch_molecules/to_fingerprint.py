@@ -1,7 +1,19 @@
+"""Molecular fingerprint generation using RDKit and Chemistry Development Kit.
+
+Converts SMILES strings into binary fingerprint representations for similarity search:
+- MACCS: 166-bit structural keys
+- ECFP4: Extended-Connectivity Fingerprints (radius 2, 2048 bits)
+- FCFP4: Functional-Class Fingerprints (radius 2, 2048 bits)
+- PubChem: 881-bit fingerprints via CDK
+
+Learn more:
+- SMILES notation: https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system
+- RDKit fingerprints: https://www.rdkit.org/docs/GettingStartedInPython.html#fingerprinting-and-molecular-similarity
+"""
 from __future__ import annotations
 import os
 from dataclasses import dataclass
-from typing import Tuple, List
+from typing import Tuple
 
 import numpy as np
 
@@ -15,22 +27,31 @@ except ImportError:
 
 
 def molecule_to_maccs(x):
+    """Generate MACCS keys (166-bit structural fingerprint) from RDKit molecule."""
     return MACCSkeys.GenMACCSKeys(x)
 
 
 def molecule_to_ecfp4(x):
+    """Generate ECFP4 fingerprint (Morgan, radius=2, 2048 bits) from RDKit molecule."""
     return AllChem.GetMorganFingerprintAsBitVect(x, 2, nBits=2048)
 
 
 def molecule_to_fcfp4(x):
+    """Generate FCFP4 fingerprint (Morgan with features, radius=2, 2048 bits) from RDKit molecule."""
     return AllChem.GetMorganFingerprintAsBitVect(x, 2, nBits=2048, useFeatures=True)
 
 
 def smiles_to_maccs_ecfp4_fcfp4(
     smiles: str,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Uses RDKit to simultaneously compute MACCS, ECFP4, and FCFP4 representations."""
+    """Convert SMILES to packed binary fingerprints (MACCS, ECFP4, FCFP4).
 
+    Args:
+        smiles: SMILES string representation of molecule
+
+    Returns:
+        Tuple of three packed numpy arrays (MACCS: 21 bytes, ECFP4: 256 bytes, FCFP4: 256 bytes)
+    """
     molecule = Chem.MolFromSmiles(smiles)
     return (
         np.packbits(molecule_to_maccs(molecule)),
@@ -45,7 +66,16 @@ _cdk_fingerprinter = None
 
 
 def smiles_to_pubchem(smiles: str) -> Tuple[np.ndarray]:
-    """Uses Chemistry Development Kit to compute PubChem representations."""
+    """Convert SMILES to PubChem fingerprint using Chemistry Development Kit (CDK).
+
+    Initializes JVM on first call and caches CDK components for subsequent calls.
+
+    Args:
+        smiles: SMILES string representation of molecule
+
+    Returns:
+        Tuple containing single packed numpy array (PubChem: 111 bytes from 881 bits)
+    """
     global _cdk
     global _cdk_smiles_parser
     global _cdk_fingerprinter

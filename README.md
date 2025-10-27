@@ -98,18 +98,31 @@ Those come in handy if you want to test your application without downloading the
 ## Installation
 
 The project supports multiple installation profiles for different use cases.
-We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable dependency management:
+We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable dependency management.
+To install source for exploration & development:
+
+```sh
+git clone https://github.com/ashvardanian/USearchMolecules.git
+cd USearchMolecules
+
+uv venv --python 3.12                   # or your preferred Python version
+source .venv/bin/activate               # to activate the virtual environment
+uv pip install setuptools wheel         # to pull the latest build tools
+uv pip install -e . --force-reinstall   # to build locally from source
+uv pip install -e ".[dev]"              # for fingerprinting & generation of indexes
+uv pip install -e ".[gpu]"              # for GPU-accelerated processing with nvMolKit
+uv pip install -e ".[viz]"              # for visualization with StreamLit
+uv pip install -e ".[all]"              # for all features
+```
+
+Alternatively, you can install from PyPI:
 
 ```sh
 uv pip install usearch-molecules
-# for building indexes, processing molecules, and fingerprinting
-uv pip install "usearch-molecules[dev]"
-# for GPU-accelerated processing with nvMolKit
-uv pip install "usearch-molecules[gpu]"
-# for visualization with StreamLit
-uv pip install "usearch-molecules[viz]"
-# for all features
-uv pip install "usearch-molecules[all]"
+uv pip install "usearch-molecules[dev]" # for fingerprinting & generation of indexes
+uv pip install "usearch-molecules[gpu]" # for GPU-accelerated processing with nvMolKit
+uv pip install "usearch-molecules[viz]" # for visualization with StreamLit
+uv pip install "usearch-molecules[all]" # for all features
 ```
 
 ## Usage
