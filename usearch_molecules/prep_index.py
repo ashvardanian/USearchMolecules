@@ -1,7 +1,26 @@
-"""Indexes fingerprints using USearch."""
+"""Index Generation - Build USearch similarity indexes for molecular fingerprints.
+
+Builds HNSW (Hierarchical Navigable Small World) indexes using USearch for fast
+approximate nearest neighbor search on molecular fingerprints.
+
+Input:
+    - data/{dataset}/parquet/*.parquet - Parquet files with fingerprint columns
+
+Output:
+    - data/{dataset}/index-maccs.usearch - MACCS fingerprint index
+    - data/{dataset}/index-maccs+ecfp4.usearch - Hybrid MACCS+ECFP4 index
+
+Usage:
+    # Process all available datasets (idempotent - safe to rerun)
+    uv run python -m usearch_molecules.prep_index
+
+    # Process specific dataset
+    uv run python -m usearch_molecules.prep_index --datasets example
+"""
 
 import os
 import logging
+import argparse
 from typing import List, Callable
 from multiprocessing import Process, cpu_count
 
@@ -262,15 +281,63 @@ def mono_index_mixed(dataset: FingerprintedDataset):
         pass
 
 
-if __name__ == "__main__":
-    logger.info("Time to index some molecules!")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 
-    processes = max(cpu_count() - 4, 1)
 
-    for dataset in ["example", "pubchem", "gdb13", "real"]:
-        if not os.path.exists(f"data/{dataset}"):
+main_epilog = """
+Examples:
+  # Process all available datasets
+  uv run python -m usearch_molecules.prep_index
+
+  # Process specific dataset
+  uv run python -m usearch_molecules.prep_index --datasets example
+"""
+
+
+def main():
+    """Main entry point with CLI argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="Build USearch similarity indexes for molecular fingerprints",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=main_epilog,
+    )
+
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        choices=["example", "pubchem", "gdb13", "real"],
+        default=["example", "pubchem", "gdb13", "real"],
+        help="Which datasets to process (default: all available)",
+    )
+
+    args = parser.parse_args()
+
+    logger.info("Building USearch similarity indexes")
+    logger.info(f"Datasets: {', '.join(args.datasets)}")
+
+    for dataset_name in args.datasets:
+        dataset_path = f"data/{dataset_name}"
+        if not os.path.exists(dataset_path):
+            logger.warning(f"Skipping {dataset_name}: directory {dataset_path} not found")
             continue
 
-        loaded_dataset = FingerprintedDataset.open(f"data/{dataset}")
-        mono_index_maccs(loaded_dataset)
-        mono_index_mixed(loaded_dataset)
+        logger.info("")
+        logger.info(f"Processing dataset: {dataset_name}")
+
+        try:
+            loaded_dataset = FingerprintedDataset.open(dataset_path)
+            mono_index_maccs(loaded_dataset)
+            mono_index_mixed(loaded_dataset)
+            logger.info(f"✓ Successfully indexed {dataset_name}")
+        except Exception as e:
+            logger.error(f"✗ Failed to index {dataset_name}: {e}", exc_info=True)
+            raise
+
+    logger.info("")
+    logger.info("Completed!")
+
+
+if __name__ == "__main__":
+    main()

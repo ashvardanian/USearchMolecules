@@ -1,7 +1,36 @@
-"""Fingerprints the molecules, encoding them with 4 techniques, producing 28 Billions fingerprints for 7 Billion molecules."""
+"""Fingerprint Generation - Add molecular fingerprints to Parquet files.
+
+Augments Parquet files with molecular fingerprints computed using RDKit and CDK,
+enabling similarity search and clustering operations.
+
+Input:
+    - data/{dataset}/parquet/*.parquet - Parquet files with 'smiles' column
+
+Output:
+    - Same Parquet files augmented with fingerprint columns:
+      - maccs: MACCS keys (166 bits → 21 bytes)
+      - ecfp4: Extended Connectivity FP diameter 4 (2048 bits → 256 bytes)
+      - fcfp4: Functional Class FP diameter 4 (2048 bits → 256 bytes)
+      - pubchem: PubChem fingerprints (881 bits → 111 bytes)
+
+Usage:
+    # Process all available datasets (idempotent - safe to rerun)
+    uv run python -m usearch_molecules.prep_encode
+
+    # Process specific dataset
+    uv run python -m usearch_molecules.prep_encode --datasets example
+
+    # Skip PubChem fingerprints (CDK is slow)
+    uv run python -m usearch_molecules.prep_encode --datasets example --skip-cdk
+
+    # Control parallelism
+    uv run python -m usearch_molecules.prep_encode --datasets example --processes 8
+"""
 
 import os
+import sys
 import logging
+import argparse
 from typing import List, Callable
 from multiprocessing import Process, cpu_count
 
@@ -29,6 +58,9 @@ from usearch_molecules.dataset import (
     FingerprintedEntry,
 )
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -142,12 +174,8 @@ def shards_index(dataset: FingerprintedDataset):
     os.makedirs(os.path.join(dataset.dir, "usearch-maccs+ecfp4"), exist_ok=True)
 
     for shard_idx, shard in enumerate(dataset.shards):
-        index_path_maccs = os.path.join(
-            dataset.dir, "usearch-maccs", shard.name + ".usearch"
-        )
-        index_path_mixed = os.path.join(
-            dataset.dir, "usearch-maccs+ecfp4", shard.name + ".usearch"
-        )
+        index_path_maccs = os.path.join(dataset.dir, "usearch-maccs", shard.name + ".usearch")
+        index_path_mixed = os.path.join(dataset.dir, "usearch-maccs+ecfp4", shard.name + ".usearch")
 
         if (
             Index.metadata(index_path_maccs) is not None
@@ -305,9 +333,7 @@ def mono_index_maccs(dataset: FingerprintedDataset):
 
 
 def mono_index_mixed(dataset: FingerprintedDataset):
-    index_path_mixed = os.path.join(
-        "indexes", dataset.dir, "usearch-maccs+ecfp4.usearch"
-    )
+    index_path_mixed = os.path.join("indexes", dataset.dir, "usearch-maccs+ecfp4.usearch")
     os.makedirs(os.path.join("indexes", dataset.dir), exist_ok=True)
 
     index_mixed = Index(
@@ -369,14 +395,81 @@ def mono_index_mixed(dataset: FingerprintedDataset):
         pass
 
 
-if __name__ == "__main__":
-    logger.info("Time to encode some molecules!")
+main_epilog = """
+Examples:
+  # Process all available datasets
+  uv run python -m usearch_molecules.prep_encode
 
-    processes = max(cpu_count() - 4, 1)
-    # processes = 1
+  # Process specific dataset
+  uv run python -m usearch_molecules.prep_encode --datasets example
 
-    for dataset in ["example", "pubchem", "gdb13", "real"]:
-        if not os.path.exists(f"data/{dataset}"):
+  # Skip CDK fingerprints (faster, but no PubChem fingerprints)
+  uv run python -m usearch_molecules.prep_encode --skip-cdk
+
+  # Use specific number of processes
+  uv run python -m usearch_molecules.prep_encode --processes 16
+"""
+
+
+def main():
+    """Main entry point with CLI argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="Step 2/5: Add molecular fingerprints to Parquet files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=main_epilog,
+    )
+
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        choices=["example", "pubchem", "gdb13", "real"],
+        default=["example", "pubchem", "gdb13", "real"],
+        help="Which datasets to process (default: all available)",
+    )
+    parser.add_argument(
+        "--skip-cdk",
+        action="store_true",
+        help="Skip PubChem fingerprints (CDK is slow/requires Java)",
+    )
+    parser.add_argument(
+        "--processes",
+        type=int,
+        default=max(cpu_count() - 4, 1),
+        help=f"Number of parallel processes (default: {max(cpu_count() - 4, 1)})",
+    )
+
+    args = parser.parse_args()
+
+    logger.info("Adding molecular fingerprints to Parquet files")
+    logger.info(
+        f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes} | Skip CDK: {args.skip_cdk}"
+    )
+
+    for dataset in args.datasets:
+        parquet_dir = f"data/{dataset}/parquet"
+        if not os.path.exists(parquet_dir):
+            logger.warning(f"Skipping {dataset}: directory {parquet_dir} not found")
             continue
-        augment_parquet_shards(f"data/{dataset}/parquet", augment_with_cdk, processes)
-        augment_parquet_shards(f"data/{dataset}/parquet", augment_with_rdkit, processes)
+
+        logger.info("")
+        logger.info(f"Processing dataset: {dataset}")
+
+        try:
+            if not args.skip_cdk:
+                logger.info("Adding PubChem fingerprints (CDK)...")
+                augment_parquet_shards(parquet_dir, augment_with_cdk, args.processes)
+
+            logger.info("Adding MACCS, ECFP4, FCFP4 fingerprints (RDKit)...")
+            augment_parquet_shards(parquet_dir, augment_with_rdkit, args.processes)
+
+            logger.info(f"✓ Successfully processed {dataset}")
+        except Exception as e:
+            logger.error(f"✗ Failed to process {dataset}: {e}", exc_info=True)
+            raise
+
+    logger.info("")
+    logger.info("Completed!")
+
+
+if __name__ == "__main__":
+    main()

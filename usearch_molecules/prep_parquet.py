@@ -1,7 +1,31 @@
-"""Exports all molecules from the PubChem, GDB13 and Enamine REAL datasets into Parquet shards, with up to 1 Million molecules in every granule."""
+"""Initial Data Preparation - Convert raw datasets to Parquet shards.
+
+Converts raw molecular datasets from various sources into standardized Parquet files,
+with up to 1 million molecules per shard for efficient parallel processing.
+
+Input:
+    - PubChem: CID-SMILES.gz (tab-delimited, CID + SMILES)
+    - GDB13: gdb13.tgz (13 .smi files)
+    - Enamine REAL: *.cxsmiles.bz2 (extended SMILES with metadata)
+    - Example: Pre-existing .smi files
+
+Output:
+    - data/{dataset}/parquet/*.parquet - Shards with 'smiles' column
+
+Usage:
+    # Process all available datasets (idempotent - safe to rerun)
+    uv run python -m usearch_molecules.prep_parquet
+
+    # Process specific dataset
+    uv run python -m usearch_molecules.prep_parquet --datasets example
+
+    # Control parallelism
+    uv run python -m usearch_molecules.prep_parquet --datasets example --processes 8
+"""
 
 import os
 import logging
+import argparse
 from dataclasses import dataclass
 from typing import List, Callable, Optional, Tuple
 from multiprocessing import Process, cpu_count
@@ -11,6 +35,9 @@ from stringzilla import File, Strs, Str
 
 from usearch_molecules.dataset import shard_name, write_table, SHARD_SIZE, SEED
 
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -142,9 +169,9 @@ def real(dir: os.PathLike):
 
     # Decompress all the files
     for filename in filenames:
-        has_archieve = os.path.exists(os.path.join(dir, filename + ".cxsmiles.bz2"))
+        has_archive = os.path.exists(os.path.join(dir, filename + ".cxsmiles.bz2"))
         has_decompressed = os.path.exists(os.path.join(dir, filename + ".cxsmiles"))
-        if has_decompressed or not has_archieve:
+        if has_decompressed or not has_archive:
             continue
 
         print(f"Will decompress {filename}.bz2, may take a while...")
@@ -218,6 +245,7 @@ def export_parquet_shard(
             rows_and_smiles = dataset.smiles_slice(start_row, rows_per_part)
             path_out = shard_name(dir, start_row, end_row, "parquet")
             if os.path.exists(path_out):
+                logger.info(f"Skipping existing shard: {path_out}")
                 continue
 
             try:
@@ -243,14 +271,18 @@ def export_parquet_shard(
                 shards_count,
             )
 
-            logger.info(f"Passed {shard_description}")
+            logger.info(f"Completed {shard_description}")
 
     except KeyboardInterrupt as e:
         logger.info(f"Stopping shard {shard_index} / {shards_count}")
         raise e
 
 
-def export_parquet_shards(dataset: RawDataset, dir: os.PathLike, processes: int = 1):
+def export_parquet_shards(
+    dataset: RawDataset,
+    dir: os.PathLike,
+    processes: int = 1,
+):
     dataset_size = dataset.count_lines()
     logger.info(f"Loaded {dataset_size:,} lines")
     logger.info(f"First one is {str(dataset.smiles(0))}")
@@ -262,26 +294,86 @@ def export_parquet_shards(dataset: RawDataset, dir: os.PathLike, processes: int 
     if processes > 1:
         process_pool = []
         for i in range(processes):
-            p = Process(target=export_parquet_shard, args=(dataset, dir, i, processes))
+            p = Process(
+                target=export_parquet_shard,
+                args=(dataset, dir, i, processes, SHARD_SIZE),
+            )
             p.start()
             process_pool.append(p)
 
         for p in process_pool:
             p.join()
     else:
-        export_parquet_shard(dataset, dir, 0, 1)
+        export_parquet_shard(dataset, dir, 0, 1, SHARD_SIZE)
+
+
+main_epilog = """
+Examples:
+  # Process all available datasets
+  uv run python -m usearch_molecules.prep_parquet
+
+  # Process specific dataset
+  uv run python -m usearch_molecules.prep_parquet --datasets example
+
+  # Use specific number of processes
+  uv run python -m usearch_molecules.prep_parquet --processes 16
+"""
+
+
+def main():
+    """Main entry point with CLI argument parsing."""
+    parser = argparse.ArgumentParser(
+        description="Step 1/5: Convert raw molecular datasets to Parquet shards",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=main_epilog,
+    )
+
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        choices=["example", "pubchem", "gdb13", "real"],
+        default=["example", "pubchem", "gdb13", "real"],
+        help="Which datasets to process (default: all available)",
+    )
+    parser.add_argument(
+        "--processes",
+        type=int,
+        default=max(cpu_count() - 4, 1),
+        help=f"Number of parallel processes (default: {max(cpu_count() - 4, 1)})",
+    )
+
+    args = parser.parse_args()
+
+    logger.info("Converting raw datasets to Parquet")
+    logger.info(f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes}")
+
+    dataset_loaders = {
+        "example": lambda: example("data/example"),
+        "pubchem": lambda: pubchem("data/pubchem"),
+        "gdb13": lambda: gdb13("data/gdb13"),
+        "real": lambda: real("data/real"),
+    }
+
+    for dataset_name in args.datasets:
+        dataset_path = f"data/{dataset_name}"
+        if not os.path.exists(dataset_path):
+            logger.warning(f"Skipping {dataset_name}: directory {dataset_path} not found")
+            continue
+
+        logger.info("")
+        logger.info(f"Processing dataset: {dataset_name}")
+
+        try:
+            dataset = dataset_loaders[dataset_name]()
+            export_parquet_shards(dataset, dataset_path, args.processes)
+            logger.info(f"✓ Successfully processed {dataset_name}")
+        except Exception as e:
+            logger.error(f"✗ Failed to process {dataset_name}: {e}", exc_info=True)
+            raise
+
+    logger.info("")
+    logger.info("Completed!")
 
 
 if __name__ == "__main__":
-    logger.info("Time to pre-process some molecules!")
-
-    processes = max(cpu_count() - 4, 1)
-
-    if os.path.exists("data/example"):
-        export_parquet_shards(example("data/example"), "data/example", processes)
-    if os.path.exists("data/pubchem"):
-        export_parquet_shards(pubchem("data/pubchem"), "data/pubchem", processes)
-    if os.path.exists("data/gdb13"):
-        export_parquet_shards(gdb13("data/gdb13"), "data/gdb13", processes)
-    if os.path.exists("data/real"):
-        export_parquet_shards(real("data/real"), "data/real", processes)
+    main()

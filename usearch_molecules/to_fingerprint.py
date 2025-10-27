@@ -10,6 +10,7 @@ Learn more:
 - SMILES notation: https://en.wikipedia.org/wiki/Simplified_molecular-input_line-entry_system
 - RDKit fingerprints: https://www.rdkit.org/docs/GettingStartedInPython.html#fingerprinting-and-molecular-similarity
 """
+
 from __future__ import annotations
 import os
 from dataclasses import dataclass
@@ -86,9 +87,7 @@ def smiles_to_pubchem(smiles: str) -> Tuple[np.ndarray]:
         _cdk = JPackage("org").openscience.cdk
 
     if _cdk_smiles_parser is None:
-        _cdk_smiles_parser = _cdk.smiles.SmilesParser(
-            _cdk.DefaultChemObjectBuilder.getInstance()
-        )
+        _cdk_smiles_parser = _cdk.smiles.SmilesParser(_cdk.DefaultChemObjectBuilder.getInstance())
 
     if _cdk_fingerprinter is None:
         _cdk_fingerprinter = _cdk.fingerprint.PubchemFingerprinter(

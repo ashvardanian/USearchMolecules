@@ -238,11 +238,12 @@ Original data came from:
       - [CXSMILES Part 1](https://ftp.enamine.net/download/REAL/Enamine_REAL_HAC_29_38_988M_Part_1_CXSMILES.cxsmiles.bz2).cxsmiles.bz2
       - [CXSMILES Part 2](https://ftp.enamine.net/download/REAL/Enamine_REAL_HAC_29_38_988M_Part_2_CXSMILES.cxsmiles.bz2).cxsmiles.bz2
 
-### Pre-processing Pipeline
+### Pipeline
 
-1. `prep_schedule.py`: convert and split datasets into standardized Parquet files.
-2. `prep_encode.py`: produce MACCS, PubChem, ECFP4, and FCFP4 fingerprints and index those.
-3. `prep_smiles.py`: export newline-delimited `.smi` files to simplify navigation with [StringZilla][stringzilla].
+1. `prep_parquet.py`: Convert raw datasets into standardized Parquet shards with SMILES strings.
+2. `prep_encode.py`: Add molecular fingerprints (MACCS, ECFP4, FCFP4, PubChem) to Parquet files.
+3. `prep_index.py`: Build USearch similarity indexes for fast nearest neighbor search.
+4. `prep_smiles.py`: Export SMILES strings to newline-delimited `.smi` files for [StringZilla][stringzilla].
 
 Every script is designed to work with bigger-than-memory data.
 In other words, processing 1 TB of molecules doesn't require 1 TB of RAM.
