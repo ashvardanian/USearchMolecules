@@ -18,27 +18,42 @@ from typing import Tuple
 
 import numpy as np
 
-
+# RDKit is required for MACCS, ECFP4, FCFP4 fingerprints
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem, MACCSkeys
-    from jpype import isJVMStarted, startJVM, getDefaultJVMPath, JPackage
+    RDKIT_AVAILABLE = True
 except ImportError:
-    print("Can't fingerprint molecules without RDKit and JPype")
+    RDKIT_AVAILABLE = False
+    print("Warning: RDKit not available - MACCS/ECFP4/FCFP4 fingerprints disabled")
+
+# JPype is optional, only needed for PubChem fingerprints via CDK
+try:
+    from jpype import isJVMStarted, startJVM, getDefaultJVMPath, JPackage
+    JPYPE_AVAILABLE = True
+except ImportError:
+    JPYPE_AVAILABLE = False
+    # Don't print warning - JPype is optional for most use cases
 
 
 def molecule_to_maccs(x):
     """Generate MACCS keys (166-bit structural fingerprint) from RDKit molecule."""
+    if not RDKIT_AVAILABLE:
+        raise ImportError("RDKit is required for MACCS fingerprints. Install with: pip install rdkit")
     return MACCSkeys.GenMACCSKeys(x)
 
 
 def molecule_to_ecfp4(x):
     """Generate ECFP4 fingerprint (Morgan, radius=2, 2048 bits) from RDKit molecule."""
+    if not RDKIT_AVAILABLE:
+        raise ImportError("RDKit is required for ECFP4 fingerprints. Install with: pip install rdkit")
     return AllChem.GetMorganFingerprintAsBitVect(x, 2, nBits=2048)
 
 
 def molecule_to_fcfp4(x):
     """Generate FCFP4 fingerprint (Morgan with features, radius=2, 2048 bits) from RDKit molecule."""
+    if not RDKIT_AVAILABLE:
+        raise ImportError("RDKit is required for FCFP4 fingerprints. Install with: pip install rdkit")
     return AllChem.GetMorganFingerprintAsBitVect(x, 2, nBits=2048, useFeatures=True)
 
 
@@ -77,6 +92,12 @@ def smiles_to_pubchem(smiles: str) -> Tuple[np.ndarray]:
     Returns:
         Tuple containing single packed numpy array (PubChem: 111 bytes from 881 bits)
     """
+    if not JPYPE_AVAILABLE:
+        raise ImportError(
+            "JPype is required for PubChem fingerprints via CDK. "
+            "Install with: pip install jpype1 or include 'dev' extras"
+        )
+
     global _cdk
     global _cdk_smiles_parser
     global _cdk_fingerprinter
