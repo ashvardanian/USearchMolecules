@@ -1,13 +1,13 @@
 #  USearch Molecules
 
-![USearch Molecules 7B datataset thumbnail](/assets/USearchMolecules.jpg)
+![USearch Molecules 7B dataset thumbnail](/assets/USearchMolecules.jpg)
 
 USearch Molecules is a large Chem-Informatics dataset of small molecules.
 It includes __7'131'914'291 molecules__ with up to 50 "heavy" (non-hydrogen) atoms gathered from:
 
-- 115'034'339 mecules from the __PubChem__ dataset.
-- 977'468'301 molules from the __GDB13__ dataset.
-- 6'039'411'651 molules from thEnamine __REAL__ dataset.
+- 115'034'339 molecules from the __PubChem__ dataset.
+- 977'468'301 molecules from the __GDB13__ dataset.
+- 6'039'411'651 molecules from the Enamine __REAL__ dataset.
 
 All molecules have been encoded using `rdkit` and `cdk` to produce binary fingerprints (structural embeddings) of four kinds:
 
@@ -95,15 +95,31 @@ Those come in handy if you want to test your application without downloading the
             └── 0001000000-0002000000.smi # 58 MB
 ```
 
+## Installation
+
+The project supports multiple installation profiles for different use cases.
+We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable dependency management:
+
+```sh
+uv pip install usearch-molecules
+# for building indexes, processing molecules, and fingerprinting
+uv pip install "usearch-molecules[dev]"
+# for GPU-accelerated processing with nvMolKit
+uv pip install "usearch-molecules[gpu]"
+# for visualization with StreamLit
+uv pip install "usearch-molecules[viz]"
+# for all features
+uv pip install "usearch-molecules[all]"
+```
+
 ## Usage
 
 ### Exploring Dataset via Command Line Interface
 
-First, install NumPy, RDKit, and USearch v2, and download the dataset:
+Download the example dataset (2M molecules):
 
 ```sh
-pip3 install git+https://github.com/ashvardanian/usearch-molecules.git@main
-mkdir -p data/pubchem data/gdb13 data/real data/example
+mkdir -p data/example
 aws s3 sync --no-sign-request s3://usearch-molecules/data/example data/example/
 ```
 
@@ -175,10 +191,9 @@ results_scores = [r[2] for r in results]
 
 ## Exploring Dataset via Graphical Interface
 
-The dataset also comes with Graphical sandbox implemented with StreamLit and 3DMol.js, to help visualize similarities between molecules.
+The dataset also comes with a graphical sandbox implemented with StreamLit and 3DMol.js to help visualize similarities between molecules.
 
 ```sh
-pip install streamlit stmol ipython_genutils
 streamlit run streamlit_app.py
 ```
 

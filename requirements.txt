@@ -1,17 +1,7 @@
-# Core dependencies
-usearch>=2.0
-stringzilla>=1.0
+# Minimal dependencies for consuming the dataset (searching, loading)
+# For other use cases, install with: uv pip install -e ".[dev]" or ".[viz]" or ".[gpu]"
+usearch
+stringzilla
 numpy
 pyarrow
 tqdm
-
-# Chemistry libraries
-rdkit  # For RDKit, written in C++
-jpype1  # For Chemistry Development Kit (CDK), written in Java
-
-# Performance optimization
-numba  # For faster similarity calculation
-
-# Optional: StreamLit GUI dependencies
-streamlit
-streamlit-ketcher

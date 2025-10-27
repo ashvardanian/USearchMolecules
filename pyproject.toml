@@ -33,20 +33,44 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 
+# Minimal dependencies for consuming the dataset (searching, loading)
 dependencies = [
-    "usearch>=2.0",
-    "stringzilla>=1.0",
-    "numpy",
-    "numba",
-    "rdkit",
-    "jpype1",
-    "pyarrow",
-    "tqdm",
+    "usearch>=2",
+    "stringzilla>=4",
+    "numpy>=2",
+    "pyarrow>=22",
+    "tqdm>=4",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov", "black", "ruff", "mypy"]
-streamlit = ["streamlit", "streamlit-ketcher"]
+# Development dependencies for augmenting/building the dataset
+dev = [
+    "rdkit>=2023.0", # Molecule processing and fingerprinting
+    "jpype1>=1.4",   # Chemistry Development Kit (CDK) bindings
+    "numba>=0.56",   # JIT compilation for performance
+    "pytest>=8",
+    "pytest-cov",
+    "black>=25",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+
+# Visualization via StreamLit GUI
+viz = [
+    "streamlit>=1.20",
+    "streamlit-ketcher>=0.0.2",
+    "stmol",
+    "ipython_genutils",
+]
+
+# GPU-accelerated processing with nvMolKit (requires NVIDIA GPU, CUDA 12.5+)
+gpu = [
+    "torch>=2.0",       # PyTorch with CUDA support
+    "rdkit>=2024.09.3", # Specific RDKit version for nvMolKit compatibility
+]
+
+# All optional dependencies combined
+all = ["usearch-molecules[dev,viz,gpu]"]
 
 [project.urls]
 Homepage = "https://github.com/ashvardanian/usearch-molecules"
