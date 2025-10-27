@@ -125,6 +125,18 @@ uv pip install "usearch-molecules[viz]" # for visualization with StreamLit
 uv pip install "usearch-molecules[all]" # for all features
 ```
 
+For GPU acceleration on Ubuntu, make sure to install the required RDKit and nvMolKit dependencies.
+
+```sh
+sudo apt-get install librdkit1 rdkit-data librdkit-dev
+mkdir -p /tmp/nvMolKit /tmp/rdkit-libs
+ln -s /usr/lib/libRDKit*.so /tmp/rdkit-libs/
+git clone https://github.com/NVIDIA-Digital-Bio/nvMolKit.git /tmp/nvMolKit
+export CMAKE_ARGS="-DCMAKE_CUDA_COMPILER=/usr/local/cuda-12.8/bin/nvcc -DCUDAToolkit_ROOT=/usr/local/cuda-12.8 -DNVMOLKIT_BUILD_AGAINST_PIP_RDKIT=ON -DNVMOLKIT_BUILD_AGAINST_PIP_LIBDIR=/tmp/rdkit-libs
+  -DNVMOLKIT_BUILD_AGAINST_PIP_INCDIR=/usr/include/rdkit -DNVMOLKIT_BUILD_AGAINST_PIP_BOOSTINCLUDEDIR=/usr/include"
+uv pip install /tmp/nvMolKit/
+```
+
 ## Usage
 
 ### Exploring Dataset via Command Line Interface
