@@ -7,7 +7,7 @@ name = "usearch-molecules"
 version = "1.0.0"
 description = "Large Chem-Informatics dataset of 7B+ molecules with binary fingerprints for drug discovery"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Ash Vardanian", email = "ash.vardanian@unum.cloud" }]
 keywords = [
@@ -25,7 +25,6 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -42,12 +41,12 @@ dependencies = [
     "tqdm>=4",
 ]
 
-[project.optional-dependencies]
 # Development dependencies for augmenting/building the dataset
+[project.optional-dependencies]
 dev = [
     "rdkit>=2023.0", # Molecule processing and fingerprinting
     "jpype1>=1.4",   # Chemistry Development Kit (CDK) bindings
-    "numba>=0.56",   # JIT compilation for performance
+    "numba>=0.62",   # JIT compilation for performance
     "pytest>=8",
     "pytest-cov",
     "black>=25",
@@ -58,7 +57,7 @@ dev = [
 # Visualization via StreamLit GUI
 viz = [
     "streamlit>=1.20",
-    "streamlit-ketcher>=0.0.2",
+    "streamlit-ketcher>=0.0.1",
     "stmol",
     "ipython_genutils",
 ]
@@ -86,14 +85,14 @@ exclude = ["tests*", "stats*"]
 
 [tool.black]
 line-length = 100
-target-version = ["py39"]
+target-version = ["py310"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
