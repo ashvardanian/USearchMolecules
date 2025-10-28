@@ -19,6 +19,7 @@
     "ndarray",
     "numba",
     "organometallics",
+    "pixi",
     "pubchem",
     "pyarrow",
     "RDKit",

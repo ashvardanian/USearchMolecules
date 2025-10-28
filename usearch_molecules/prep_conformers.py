@@ -56,14 +56,19 @@ Usage:
 
     uv run python -m usearch_molecules.prep_conformers --datasets example
     uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 200
-    uv run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
     uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 50 --batch-size 1000
     uv run python -m usearch_molecules.prep_conformers --datasets example --export-sdf --export-mol2
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
 
 My defaults for benchmarking:
 
     pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20
     pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20 --use-gpu
+
+With larger batches the 16-core CPU yields 7 mols/s and 70 conf/s and the H100 yields 25 mols/s and 250 conf/s:
+
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 10 --batch-size 1000 --optimizations 20
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 10 --batch-size 1000 --optimizations 20 --use-gpu
 """
 
 import os
