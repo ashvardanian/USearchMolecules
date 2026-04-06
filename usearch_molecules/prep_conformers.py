@@ -55,20 +55,20 @@ Energy & Similarity:
 Usage:
 
     uv run python -m usearch_molecules.prep_conformers --datasets example
-    uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 200
-    uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 50 --batch-size 1000
+    uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 0
+    uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 2000
     uv run python -m usearch_molecules.prep_conformers --datasets example --export-sdf --export-mol2
     pixi run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
 
 My defaults for benchmarking:
 
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 100 --optimizations 20 --use-gpu
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 100
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 100 --use-gpu
 
-With larger batches the 16-core CPU yields 7 mols/s and 70 conf/s and the H100 yields 25 mols/s and 250 conf/s:
+With larger batches the H100 yields ~30 mols/s and ~300 conf/s (10 conformers, 200 MMFF iterations):
 
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 10 --batch-size 1000 --optimizations 20
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --conformers 10 --batch-size 1000 --optimizations 20 --use-gpu
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000
+    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000 --use-gpu
 """
 
 import os
@@ -412,8 +412,8 @@ def remove_duplicate_conformers(
 
 def process_batch_to_conformers_gpu(
     smiles_list: List[str],
-    num_conformers: int = 50,
-    optimization_iters: int = 0,
+    num_conformers: int = 10,
+    optimization_iters: int = 200,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
     random_seed: int = 42,
@@ -626,8 +626,8 @@ def process_batch_to_conformers_gpu(
 
 def process_batch_to_conformers(
     smiles_list: List[str],
-    num_conformers: int = 50,
-    optimization_iters: int = 0,
+    num_conformers: int = 10,
+    optimization_iters: int = 200,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
     random_seed: int = 42,
@@ -733,8 +733,8 @@ def process_batch_to_conformers(
 def augment_parquet_with_conformers(
     parquet_path: str,
     batch_size: int = 1000,
-    num_conformers: int = 50,
-    optimization_iters: int = 0,
+    num_conformers: int = 10,
+    optimization_iters: int = 200,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
     use_gpu: bool = False,
@@ -856,14 +856,14 @@ def augment_parquet_with_conformers(
 
 main_epilog = """
 Examples:
-  # Generate conformers with defaults (ETKDGv3 only, no optimization)
+  # Generate conformers with defaults (10 ETKDG samples, 200 MMFF iterations)
   uv run python -m usearch_molecules.prep_conformers --datasets example
 
-  # Generate many conformers with MMFF optimization
-  uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 50 --optimizations 200
+  # Skip MMFF optimization (ETKDG-only, faster but less accurate)
+  uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 0
 
   # Large batch processing for efficiency
-  uv run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000 --conformers 100
+  uv run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000
 
   # Enable RMSD deduplication (disabled by default for performance)
   uv run python -m usearch_molecules.prep_conformers --datasets example --remove-duplicates 1
@@ -897,14 +897,14 @@ def main():
     parser.add_argument(
         "--conformers",
         type=int,
-        default=50,
-        help="Number of conformers to generate per molecule (default: 50)",
+        default=10,
+        help="Number of conformers to generate per molecule (default: 10)",
     )
     parser.add_argument(
         "--optimizations",
         type=int,
-        default=0,
-        help="MMFF optimization iterations per conformer, 0 to skip (default: 0)",
+        default=200,
+        help="MMFF optimization iterations per conformer, 0 to skip (default: 200)",
     )
     parser.add_argument(
         "--remove-duplicates",
