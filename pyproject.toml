@@ -1,86 +1,86 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0", "wheel"]
 
 [project]
-name = "usearch-molecules"
-version = "1.0.0"
+authors = [{name = "Ash Vardanian", email = "ash.vardanian@unum.cloud"}]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: Apache Software License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Chemistry",
+  "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
 description = "Large Chem-Informatics dataset of 7B+ molecules with binary fingerprints for drug discovery"
+keywords = [
+  "molecules",
+  "chemistry",
+  "drug-discovery",
+  "fingerprints",
+  "similarity-search",
+  "usearch",
+]
+license = {text = "Apache-2.0"}
+name = "usearch-molecules"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
-authors = [{ name = "Ash Vardanian", email = "ash.vardanian@unum.cloud" }]
-keywords = [
-    "molecules",
-    "chemistry",
-    "drug-discovery",
-    "fingerprints",
-    "similarity-search",
-    "usearch",
-]
-classifiers = [
-    "Development Status :: 4 - Beta",
-    "Intended Audience :: Developers",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: Apache Software License",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Topic :: Scientific/Engineering :: Chemistry",
-    "Topic :: Scientific/Engineering :: Bio-Informatics",
-]
+version = "1.0.0"
 
 # Minimal dependencies for consuming the dataset (searching, loading)
 dependencies = [
-    "usearch>=2",
-    "stringzilla>=4",
-    "numpy>=2",
-    "pyarrow>=22",
-    "tqdm>=4",
+  "usearch>=2",
+  "stringzilla>=4",
+  "numpy>=2",
+  "pyarrow>=22",
+  "tqdm>=4",
 ]
 
 # Development dependencies for augmenting/building the dataset
 [project.optional-dependencies]
 dev = [
-    "rdkit>=2023.0", # Molecule processing and fingerprinting
-    "jpype1>=1.4",   # Chemistry Development Kit (CDK) bindings
-    "numba>=0.62",   # JIT compilation for performance
-    "pytest>=8",
-    "pytest-cov",
-    "black>=25",
-    "ruff>=0.1.0",
-    "mypy>=1.0",
+  "rdkit>=2023.0", # Molecule processing and fingerprinting
+  "jpype1>=1.4", # Chemistry Development Kit (CDK) bindings
+  "numba>=0.62", # JIT compilation for performance
+  "pytest>=8",
+  "pytest-cov",
+  "black>=25",
+  "ruff>=0.1.0",
+  "mypy>=1.0",
 ]
 
 # Visualization via StreamLit GUI
 viz = [
-    "streamlit>=1.20",
-    "streamlit-ketcher>=0.0.1",
-    "stmol",
-    "ipython_genutils",
+  "streamlit>=1.20",
+  "streamlit-ketcher>=0.0.1",
+  "stmol",
+  "ipython_genutils",
 ]
 
-# GPU-accelerated processing with nvMolKit (requires NVIDIA GPU, CUDA 12.5+)
+# GPU-accelerated processing with nvMolKit (requires NVIDIA GPU, CUDA 12.9+)
 gpu = [
-    "rdkit>=2024.09.3", # Specific RDKit version for nvMolKit compatibility
+  "rdkit>=2025.03.4", # Specific RDKit version for nvMolKit compatibility
 ]
 
 # All optional dependencies combined
 all = ["usearch-molecules[dev,viz,gpu]"]
 
 [project.urls]
+"AWS Open Data" = "https://registry.opendata.aws/usearch-molecules/"
+"Bug Tracker" = "https://github.com/ashvardanian/usearch-molecules/issues"
+Documentation = "https://github.com/ashvardanian/usearch-molecules#readme"
 Homepage = "https://github.com/ashvardanian/usearch-molecules"
 Repository = "https://github.com/ashvardanian/usearch-molecules"
-Documentation = "https://github.com/ashvardanian/usearch-molecules#readme"
-"Bug Tracker" = "https://github.com/ashvardanian/usearch-molecules/issues"
-"AWS Open Data" = "https://registry.opendata.aws/usearch-molecules/"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["usearch_molecules*"]
 exclude = ["tests*", "stats*"]
+include = ["usearch_molecules*"]
+where = ["."]
 
 [tool.black]
 line-length = 120
@@ -91,28 +91,27 @@ line-length = 120
 target-version = "py310"
 
 [tool.mypy]
+disallow_untyped_defs = false
 python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
-disallow_untyped_defs = false
 
 # Pixi configuration for conda-based dependencies
 [tool.pixi.workspace]
-name = "usearch-molecules"
 channels = ["conda-forge", "nvidia"]
+name = "usearch-molecules"
 platforms = ["linux-64"]
 
 # We hardcode compatible versions for RDKit and nvMolKit here to ensure proper GPU support
 [tool.pixi.dependencies]
+cuda-version = "12.9.*"
+nvmolkit = "0.4.*"
 python = "3.12.*"
-rdkit = "2024.09.*"
-nvmolkit = "0.2.*"
-cuda-version = "12.6.*"
+rdkit = "2025.03.*"
 
 [tool.pixi.pypi-dependencies]
-usearch-molecules = { path = ".", editable = true }
+usearch-molecules = {path = ".", editable = true}
 
 [tool.pixi.tasks]
-conformers = { cmd = "python -m usearch_molecules.prep_conformers", depends-on = [
-] }
-viz = { cmd = "streamlit run streamlit_app.py", depends-on = [] }
+conformers = {cmd = "python -m usearch_molecules.prep_conformers", depends-on = []}
+viz = {cmd = "streamlit run streamlit_app.py", depends-on = []}
