@@ -281,3 +281,50 @@ aws s3 sync data/real/parquet/ s3://usearch-molecules/data/real/parquet/
 
 [stringzilla]: https://github.com/ashvardanian/stringzilla
 
+### What's Persisted
+
+Each Parquet shard stores the columns below.
+The guiding principle is: __cache what's expensive to recompute, skip what's cheap to reconstruct from SMILES__.
+
+Conformer generation (ETKDG + MMFF) costs 60-600 ms per molecule depending on size and conformer count.
+By contrast, parsing a SMILES string back into a full molecular graph with atom types, bond topology, formal charges, and stereochemistry takes under 0.2 ms.
+That 300-3000x cost gap is why we persist 3D coordinates but not the molecular graph.
+
+| Column               | Type          | Typecal Size | Description                                                                                          |
+| -------------------- | ------------- | ------------ | ---------------------------------------------------------------------------------------------------- |
+| `smiles`             | `utf8`        | ~50 B        | Canonical SMILES string encodes the graph: atom types, bond orders, formal charges, stereochemistry. |
+| `maccs`              | `binary(21)`  | 21 B         | MACCS structural keys (166 bits).                                                                    |
+| `ecfp4`              | `binary(256)` | 256 B        | Extended-connectivity fingerprint, radius 2 (2048 bits).                                             |
+| `fcfp4`              | `binary(256)` | 256 B        | Functional-class fingerprint, radius 2 (2048 bits).                                                  |
+| `pubchem`            | `binary(111)` | 111 B        | PubChem substructure fingerprint (881 bits). Optional, requires CDK.                                 |
+| `n_heavy_atoms`      | `uint16`      | 2 B          | Number of heavy (non-hydrogen) atoms. Avoids SMILES parsing for basic filtering.                     |
+| `n_atoms`            | `uint16`      | 2 B          | Total atom count including hydrogens. Needed to reshape the coordinate blob.                         |
+| `n_bonds`            | `uint16`      | 2 B          | Number of bonds. Useful for graph-based models without reparsing.                                    |
+| `molecular_weight`   | `float32`     | 4 B          | Exact molecular weight in Daltons. Universally needed for filtering.                                 |
+| `n_conformers`       | `uint8`       | 1 B          | Number of stored conformers (after RMSD-based deduplication).                                        |
+| `conformer_coords`   | `binary`      | K * N * 6 B  | 3D coordinates as raw `float16` bytes, shape `(K, N, 3)` where `K` = conformers, `N` = atoms.        |
+| `conformer_energies` | `binary`      | K * 4 B      | MMFF94 energies as raw `float32` bytes, one per conformer (kcal/mol, lowest first).                  |
+
+Coordinates are stored as IEEE 754 `float16` (not `bfloat16`) because PyArrow and the Parquet specification natively support `float16`, while `bfloat16` has no Parquet encoding.
+The quantization error from `float64` to `float16` is under 0.002 Angstroms - well below thermal noise at room temperature (~0.1 Angstroms).
+
+__What we intentionally don't store:__
+
+- __Bond topology__ (atom pairs + bond orders) - this is literally what SMILES encodes. `C-C(=O)-O` directly specifies which atoms connect and by what bond type.
+- __Atom types__ (element per atom index) - every letter in the SMILES string IS the atom type. After `AddHs`, hydrogen placement is deterministic.
+- __Formal charges__ (integer per atom) - encoded explicitly in SMILES brackets, e.g. `[NH3+]`, `[O-]`.
+- __Stereochemistry__ (chirality, E/Z geometry) - encoded with `@`/`@@` and `/`/`\` in SMILES, and also inferable from the 3D coordinates.
+
+All four are losslessly recoverable from the `smiles` column in under 0.2 ms via `Chem.MolFromSmiles` + `AddHs`.
+
+To read conformers back into NumPy arrays:
+
+```python
+import numpy as np
+
+coords = np.frombuffer(row["conformer_coords"], dtype=np.float16)
+coords = coords.reshape(row["n_conformers"], row["n_atoms"], 3)
+energies = np.frombuffer(row["conformer_energies"], dtype=np.float32)
+```
+
+For a typical drug-like molecule (~40 atoms with H, 5 conformers), the coordinate column is ~1.2 KB per molecule in `float16` versus ~15 KB for the previous SDF text format - a 12x reduction.
