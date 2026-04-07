@@ -47,6 +47,7 @@ dev = [
   "rdkit>=2023.0", # Molecule processing and fingerprinting
   "jpype1>=1.4", # Chemistry Development Kit (CDK) bindings
   "numba>=0.62", # JIT compilation for performance
+  "numkong>=7.4.5", # SIMD-accelerated RMSD for conformer deduplication
   "pytest>=8",
   "pytest-cov",
   "black>=25",
