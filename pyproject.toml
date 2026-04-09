@@ -36,6 +36,7 @@ version = "1.0.0"
 dependencies = [
   "usearch>=2",
   "stringzilla>=4",
+  "numkong>=7.4.5",
   "numpy>=2",
   "pyarrow>=22",
   "tqdm>=4",
