@@ -1,6 +1,6 @@
 #  USearch Molecules
 
-![USearch Molecules 7B dataset thumbnail](/assets/USearchMolecules.jpg)
+![USearchMolecules 7B dataset thumbnail](https://github.com/ashvardanian/ashvardanian/raw/master/repositories/USearchMolecules.jpg?raw=true)
 
 USearch Molecules is a large Chem-Informatics dataset of small molecules.
 It includes __7'131'914'291 molecules__ with up to 50 "heavy" (non-hydrogen) atoms gathered from:
