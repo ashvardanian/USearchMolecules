@@ -2,3 +2,4 @@ cdk-2.2.jar filter=lfs diff=lfs merge=lfs -text
 *.parquet filter=lfs diff=lfs merge=lfs -text
 *.usearch filter=lfs diff=lfs merge=lfs -text
 *.smi filter=lfs diff=lfs merge=lfs -text
+*.jsonl filter=lfs diff=lfs merge=lfs -text
