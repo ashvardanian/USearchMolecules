@@ -1,20 +1,45 @@
-#  USearch Molecules
+#  USearchMolecules
+
+Drug discovery is, mechanically, a search problem.
+A medicinal chemist starts with a molecule that almost works — too toxic, too unstable, too hard to make — and needs to find a molecule that's chemically similar but fixes the problem.
+Today this search runs through expensive in-house screening libraries (~1M molecules), commercial catalogs (Enamine REAL, ~6B virtual compounds), and proprietary internal data.
+Each search takes hours-to-weeks because the underlying tools are slow and siloed.
 
 ![USearchMolecules 7B dataset thumbnail](https://github.com/ashvardanian/ashvardanian/raw/master/repositories/USearchMolecules.jpg?raw=true)
 
-USearch Molecules is a large Chem-Informatics dataset of small molecules.
-It includes __7'131'914'291 molecules__ with up to 50 "heavy" (non-hydrogen) atoms gathered from:
+USearchMolecules is a public, open-source search index over every published drug-like molecule that lets a chemist (or an automated pipeline) ask, in milliseconds:
+
+- _"Show me 100 molecules shaped like this one but without acrylates."_
+- _"Show me everything in Enamine that swaps a methyl-pyridine for an ethyl-imidazole on this scaffold."_
+- _"Cluster my 50K screening hits by their 3D shape similarity."_
+- _"Find all molecules with the same Bemis-Murcko scaffold as paclitaxel that aren't PAINS-flagged."_
+
+More specifically, it covers __7'131'914'291 molecules__ with up to 50 "heavy" (non-hydrogen) atoms – sourced from:
 
 - 115'034'339 molecules from the __PubChem__ dataset.
 - 977'468'301 molecules from the __GDB13__ dataset.
 - 6'039'411'651 molecules from the Enamine __REAL__ dataset.
 
-All molecules have been encoded using `rdkit` and `cdk` to produce binary fingerprints (structural embeddings) of four kinds:
+All molecules come with several important categories of information:
 
-- __MACCS__: Molecular ACCess System keys with __166__ dimensions.
-- __PubChem__: Structure Fingerprints with __881__ dimensions.
-- __ECFP4__: Extended Connectivity Fingerprint of diameter 4 with __2048__ dimensions.
-- __FCFP4__: Functional Class Fingerprint of diameter 4 with __2048__ dimensions.
+- Traditional structural dictionary-based keys, commonly used for substructure search:
+  - __MACCS__: Molecular ACCess System keys with __166__ dimensions.
+  - __PubChem__: Structure Fingerprints with __881__ dimensions.
+- Hashed circular fingerprints often used for similarity search:
+  - __ECFP4__: Extended Connectivity Fingerprint of diameter 4 with __2048__ dimensions.
+  - __FCFP4__: Functional Class Fingerprint of diameter 4 with __2048__ dimensions.
+- Curated SMARTS pattern catalogs, each producing one annotation per molecule:
+  - __Pharma alerts__: 2'448 patterns from Eli Lilly, GSK, BMS, Novartis, Pfizer, and AbbVie, combined with academic catalogs from the PAINS, Brenk, NIH, ZINC, Kazius, ChEMBL, and Toxtree projects.
+  - __Functional groups__: __1'000+__ distinct groups combining the Toxtree dictionary, Ertl's IFG algorithm, DataWarrior, and RDKit's Fragments vocabulary, used for descriptor generation and chemical-class labeling.
+  - __3D pharmacophore features__: __150__ base features for hydrogen-bond donors and acceptors, halogen bonds, aromatic ring stacking, hydrophobic groups, ionizable centres, and metal binders, expandable into Ph4FP triplet and quadruplet fingerprints with millions of dimensions.
+  - __Reaction templates__: __500'000+__ SMIRKS templates mined from the USPTO patent corpus, supplemented by the Hartenfeller-58, Schneider BRAINS, and NameRxn named-reaction taxonomies, for retrosynthesis and library enumeration.
+  - __Patent Markush patterns__: __1 to 3 million__ generic patent claim structures extracted via the MarkushGrapher pipeline from bulk USPTO, EPO, JPO, KIPO, and CNIPA patent literature, comparable in scope to the commercial CAS MARPAT corpus of ~1.1M Markush records.
+- Multiple 3D conformations produced computationally:
+  - __ETKDG__ initialization with RDKit's experimentally-tuned distance-geometry generator.
+  - __MMFF94__ relaxation of each seed by the Merck Molecular Force Field.
+  - __RMSD deduplication__ keeps only geometrically distinct minima, typically three to five conformers per molecule.
+  - __Per-conformer energies__ in kcal/mol stored alongside coordinates, lowest first.
+  - __USR__ shape vectors with __12__ dimensions and __USRCAT__ with __60__ dimensions per conformer for rotation-invariant 3D similarity without alignment.
 
 Those fingerprints were then indexed using [Unum's USearch](https://github.com/unum-cloud/usearch) to enable real-time search and clustering of molecular structures for drug discovery and broader chemistry.
 The dataset is included in [AWS Open Data platform](https://registry.opendata.aws/usearch-molecules/) and is publicly available from the `s3://usearch-molecules` bucket, accessible even without AWS credentials, entirely anonymously:
@@ -99,7 +124,7 @@ Those come in handy if you want to test your application without downloading the
 
 The project supports multiple installation profiles for different use cases.
 
-### Option 1: UV (Pure Python, Recommended for CPU-only)
+### Via UV for CPU Backends
 
 We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable Python dependency management.
 
@@ -127,7 +152,7 @@ uv pip install "usearch-molecules[viz]" # for visualization with StreamLit
 uv pip install "usearch-molecules[all]" # for all features
 ```
 
-### Option 2: Pixi (Conda-based, Recommended for GPU acceleration)
+### Via Pixi for GPU acceleration
 
 For GPU acceleration with nvMolKit, we recommend using [pixi](https://pixi.sh) which handles conda dependencies (RDKit, nvMolKit) seamlessly:
 
@@ -221,7 +246,7 @@ The dataset also comes with a graphical sandbox implemented with StreamLit and 3
 streamlit run streamlit_app.py
 ```
 
-![USearch Molecules StreamLit demo preview](/assets/USearchMoleculesStreamLitPreview.gif)
+![USearchMolecules StreamLit demo preview](/assets/USearchMoleculesStreamLitPreview.gif)
 
 ## Methodology
 
@@ -280,6 +305,29 @@ aws s3 sync data/real/parquet/ s3://usearch-molecules/data/real/parquet/
 ```
 
 [stringzilla]: https://github.com/ashvardanian/stringzilla
+
+### Understanding Fingerprints
+
+Not all per-molecule vectors in this dataset are interchangeable, and using one where another is required produces silently wrong answers.
+They divide into three families with distinct query semantics:
+
+1. __Similarity vectors__: hashed circular fingerprints (ECFP4, FCFP4) and the atom-pair and topological-torsion variants.
+2. __Substructure flags__: dictionary fingerprints MACCS and PubChem, plus the SMARTS-catalog bits from the alerts, functional-group, pharmacophore, and reaction-template collections.
+3. __Geometric shape descriptors__: USR and USRCAT, computed per 3D conformer.
+
+The first family encodes local atomic environments and folds them via hashing into a fixed bitvector.
+Individual bits have no chemical meaning — hash collisions are expected and harmless, because these vectors are designed for whole-molecule comparison via Tanimoto or cosine similarity.
+They power _"show me molecules similar to X"_ queries, but cannot be used for substructure search: a bit-subset relationship between query and target does not imply structural containment.
+
+The second family assigns one bit per named SMARTS pattern, so each bit has a defined chemical meaning.
+They are sound for substructure screening — if every bit set in a query is also set in a candidate, the candidate is guaranteed to contain the corresponding patterns.
+They make poor general similarity vectors, because most bits are zero for any single molecule and small structural changes flip many bits at once.
+
+The third family is the only one that is not binary.
+USR and USRCAT are short floating-point vectors derived from each conformer's distribution of atom-to-reference-point distances, translation- and rotation-invariant by construction.
+Cosine similarity in this space corresponds to overall 3D shape similarity without Kabsch alignment or atom-count matching, which is what enables _"find molecules shaped like this one even if their 2D structure differs"_ — the canonical scaffold-hop query that 2D fingerprints cannot answer.
+
+A useful search pipeline chains all three: a similarity-vector prefilter to find a candidate neighbourhood, a substructure-flag gate to drop alerts and filter by chemical class, and a shape-descriptor ranking by 3D similarity at the end.
 
 ### What's Persisted
 
