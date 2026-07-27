@@ -25,11 +25,11 @@ from usearch_molecules.dataset import FingerprintedDataset, shape_mixed
 
 st.set_page_config(
     page_icon="⚗️",
-    page_title="USearch Molecules",
+    page_title="USearchMolecules",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-st.title("USearch Molecules")
+st.title("USearchMolecules")
 
 max_results = st.sidebar.select_slider(
     "Similar Molecules to Fetch", (1, 10, 100, 1000), 100
