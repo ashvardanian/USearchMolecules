@@ -3,7 +3,7 @@ build-backend = "setuptools.build_meta"
 requires = ["setuptools>=61.0", "wheel"]
 
 [project]
-authors = [{name = "Ash Vardanian", email = "ash.vardanian@unum.cloud"}]
+authors = [{ name = "Ash Vardanian", email = "ash.vardanian@unum.cloud" }]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -17,16 +17,17 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Chemistry",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
-description = "Large Chem-Informatics dataset of 7B+ molecules with binary fingerprints for drug discovery"
+description = "Large Multi-Modal Chem-Informatics dataset of 7B+ molecules with fingerprints and 3D conformers for drug discovery"
 keywords = [
   "molecules",
   "chemistry",
   "drug-discovery",
   "fingerprints",
+  "conformers",
   "similarity-search",
   "usearch",
 ]
-license = {text = "Apache-2.0"}
+license = { text = "Apache-2.0" }
 name = "usearch-molecules"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -45,9 +46,9 @@ dependencies = [
 # Development dependencies for augmenting/building the dataset
 [project.optional-dependencies]
 dev = [
-  "rdkit>=2023.0", # Molecule processing and fingerprinting
-  "jpype1>=1.4", # Chemistry Development Kit (CDK) bindings
-  "numba>=0.62", # JIT compilation for performance
+  "rdkit>=2023.0",  # Molecule processing and fingerprinting
+  "jpype1>=1.4",    # Chemistry Development Kit (CDK) bindings
+  "numba>=0.62",    # JIT compilation for performance
   "numkong>=7.4.5", # SIMD-accelerated RMSD for conformer deduplication
   "pytest>=8",
   "pytest-cov",
@@ -112,8 +113,9 @@ python = "3.12.*"
 rdkit = "2025.03.*"
 
 [tool.pixi.pypi-dependencies]
-usearch-molecules = {path = ".", editable = true}
+usearch-molecules = { path = ".", editable = true }
 
 [tool.pixi.tasks]
-conformers = {cmd = "python -m usearch_molecules.prep_conformers", depends-on = []}
-viz = {cmd = "streamlit run streamlit_app.py", depends-on = []}
+conformers = { cmd = "python -m usearch_molecules.prep_conformers", depends-on = [
+] }
+viz = { cmd = "streamlit run streamlit_app.py", depends-on = [] }

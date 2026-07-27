@@ -37,7 +37,7 @@ All molecules come with several important categories of information:
 - Multiple 3D conformations produced computationally:
   - __ETKDG__ initialization with RDKit's experimentally-tuned distance-geometry generator.
   - __MMFF94__ relaxation of each seed by the Merck Molecular Force Field.
-  - __RMSD deduplication__ keeps only geometrically distinct minima, typically three to five conformers per molecule.
+  - __Fixed three conformers__ per molecule, kept without deduplication — the seeds are already diverse (median inter-conformer Kabsch RMSD ~1.44 Å; fewer than 3 % fall within 0.5 Å), so pruning would discard little.
   - __Per-conformer energies__ in kcal/mol stored alongside coordinates, lowest first.
   - __USR__ shape vectors with __12__ dimensions and __USRCAT__ with __60__ dimensions per conformer for rotation-invariant 3D similarity without alignment.
 
@@ -98,10 +98,76 @@ fcfp4: fixed_size_binary[256] not null
 
 In a tabular form that will look like:
 
-|      | `smiles`                                                   |                                      `maccs` |                                                                                                                                                                                                                        `pubchem` |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            `ecfp4` |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            `fcfp4` |
-| :--- | :--------------------------------------------------------- | -------------------------------------------: | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
-| 0    | CNCC(C)NC(=O)C1(C(C)(C)OC)CC1                              | 0x00000200000002002021227C488B9C02100615FFCC | 0x00733000000000000000000000001800000000000000000000000000000000000000001E00100000000E6CC18006020002C004000800011010000000000000000000810800000040160080001400000636008000000000000F80000000000000000000000000000000000000000000 | 0x40000000000000000000800000002400000000000000000000000000000000000000001000000200000000000000000000800000000000000000000000000000000000000002000000000002000000000020000000000100000000000000000000000000010000000040000000000000000000020000000800000000000000000000000048000000000000000000000280200000000000000000020000000000000000000000000000000100000000000000020000000000000000000400000001000000000000000000000000000000010004000000000000000000000800000000000000000000800000000000000400000000000000000010000020000000 | 0xE0001400000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000000000001000401000000000000000000000000400000000000000000000001000000000000000000000100080000004000000000000000000000000000000000000000000000000000000000000000004000800000000000000000000000000001000000200000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000000004000000000000000001000000000000000000000080020000004000000000000000000000000000000000000000080 |
-| 1    | CN(C(=O)C1=CC2=C(F)C=C(F)C=C2N1)C1CN(C(=O)CC2=CC=CN=C2O)C1 | 0x00900000002000004011172DAC534CE55EF3EB7FFC | 0x007BB1800000000000000000000000005801600000003C400000000000000001F000001F00100800000C28C19E0C3EC4F3C99200A8033577540082802037222008D921BC6CDC0866F2C295B394710864D611C8D987BE99809E00000000000200000000000000040000000000000000 | 0x00000000000001000000800000200100000100000000000000000000000000020000000000000000040000000008002000000000000000808000000000000000000200000000000000000001000000000020000000000014000000001000200100000000014040000000000000104000000000020100400000000000000040100000110040000000880000200000000000100000000000000400000000000000000000000000000104040000080000000000000000080000000100000000000000000000000000042000000000004000020000000000014000004200200000000000000000008000002040000000000400800000000000000000004001000000 | 0xBE800000000000000001000000000000000080000000080000000000000000000000000000000000000200000000000000000000000900000000000000010000000000010000000000020000000000000000000000000000000000200000000000000080080000000000000000000000040000008000000000002000000080000000000000400004000000000000000010000000000000000000000000000000000000400000000000000014000000000008000000000000000000000000000000000800000000000000000000000400080000000000001000400000000100000000000000000040004000000000002404000000000000000002020040003180 |
+<table>
+<thead>
+<tr><th></th><th>0</th><th>1</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>smiles</code></td>
+<td><code>CNCC(C)NC(=O)C1(C(C)(C)OC)CC1</code></td>
+<td><code>CN(C(=O)C1=CC2=C(F)C=C(F)C=C2N1)C1CN(C(=O)CC2=CC=CN=C2O)C1</code></td>
+</tr>
+<tr>
+<td><code>maccs</code></td>
+<td><code>0x00000200000002002021227C488B9C02100615FFCC</code></td>
+<td><code>0x00900000002000004011172DAC534CE55EF3EB7FFC</code></td>
+</tr>
+<tr>
+<td><code>pubchem</code></td>
+<td><code>0x00733000000000000000000000001800000000000000000000000000000000
+<br>000000001E00100000000E6CC18006020002C004000800011010000000000000
+<br>000000810800000040160080001400000636008000000000000F800000000000
+<br>00000000000000000000000000000000</code></td>
+<td><code>0x007BB1800000000000000000000000005801600000003C4000000000000000
+<br>01F000001F00100800000C28C19E0C3EC4F3C99200A803357754008280203722
+<br>2008D921BC6CDC0866F2C295B394710864D611C8D987BE99809E000000000002
+<br>00000000000000040000000000000000</code></td>
+</tr>
+<tr>
+<td><code>ecfp4</code></td>
+<td><code>0x40000000000000000000800000002400000000000000000000000000000000
+<br>0000000010000002000000000000000000008000000000000000000000000000
+<br>0000000000000200000000000200000000002000000000010000000000000000
+<br>0000000000010000000040000000000000000000020000000800000000000000
+<br>0000000000480000000000000000000002802000000000000000000200000000
+<br>0000000000000000000000010000000000000002000000000000000000040000
+<br>0001000000000000000000000000000000010004000000000000000000000800
+<br>0000000000000000008000000000000004000000000000000000100000200000
+<br>00</code></td>
+<td><code>0x00000000000001000000800000200100000100000000000000000000000000
+<br>0200000000000000000400000000080020000000000000008080000000000000
+<br>0000020000000000000000000100000000002000000000001400000000100020
+<br>0100000000014040000000000000104000000000020100400000000000000040
+<br>1000001100400000008800002000000000001000000000000004000000000000
+<br>0000000000000000010404000008000000000000000008000000010000000000
+<br>0000000000000000042000000000004000020000000000014000004200200000
+<br>0000000000000080000020400000000004008000000000000000000040010000
+<br>00</code></td>
+</tr>
+<tr>
+<td><code>fcfp4</code></td>
+<td><code>0xE0001400000000000000000000000000000000000000000200000000000000
+<br>0000000000000000000000000000000000000000000000000000000010004010
+<br>0000000000000000000000040000000000000000000000100000000000000000
+<br>0000100080000004000000000000000000000000000000000000000000000000
+<br>0000000000000000040008000000000000000000000000000010000002000000
+<br>0000000000000000000000000000002000000000000000000000000000000000
+<br>0000000000000000000000000000000000004000000000000000001000000000
+<br>0000000000000800200000040000000000000000000000000000000000000000
+<br>80</code></td>
+<td><code>0xBE800000000000000001000000000000000080000000080000000000000000
+<br>0000000000000000000002000000000000000000000009000000000000000100
+<br>0000000001000000000002000000000000000000000000000000000020000000
+<br>0000000080080000000000000000000000040000008000000000002000000080
+<br>0000000000004000040000000000000000100000000000000000000000000000
+<br>0000000040000000000000001400000000000800000000000000000000000000
+<br>0000000800000000000000000000000400080000000000001000400000000100
+<br>0000000000000000400040000000000024040000000000000000020200400031
+<br>80</code></td>
+</tr>
+</tbody>
+</table>
 
 I've also added a tiny sample dataset under the `data/example` directory, with only 2 shards totaling 2 million entries, with pre-constructed indexes to simplify the entry.
 Those come in handy if you want to test your application without downloading the whole dataset or visualize a few molecules using the StreamLit app.
@@ -129,7 +195,7 @@ The project supports multiple installation profiles for different use cases.
 We recommend using [uv](https://github.com/astral-sh/uv) for fast, reliable Python dependency management.
 
 ```sh
-git clone https://github.com/ashvardanian/USearchMolecules.git
+git clone https://github.com/unum-bio/USearchMolecules.git
 cd USearchMolecules
 
 uv venv --python 3.12                   # or your preferred Python version
@@ -338,20 +404,20 @@ Conformer generation (ETKDG + MMFF) costs 60-600 ms per molecule depending on si
 By contrast, parsing a SMILES string back into a full molecular graph with atom types, bond topology, formal charges, and stereochemistry takes under 0.2 ms.
 That 300-3000x cost gap is why we persist 3D coordinates but not the molecular graph.
 
-| Column               | Type          | Typecal Size | Description                                                                                          |
-| -------------------- | ------------- | ------------ | ---------------------------------------------------------------------------------------------------- |
-| `smiles`             | `utf8`        | ~50 B        | Canonical SMILES string encodes the graph: atom types, bond orders, formal charges, stereochemistry. |
-| `maccs`              | `binary(21)`  | 21 B         | MACCS structural keys (166 bits).                                                                    |
-| `ecfp4`              | `binary(256)` | 256 B        | Extended-connectivity fingerprint, radius 2 (2048 bits).                                             |
-| `fcfp4`              | `binary(256)` | 256 B        | Functional-class fingerprint, radius 2 (2048 bits).                                                  |
-| `pubchem`            | `binary(111)` | 111 B        | PubChem substructure fingerprint (881 bits). Optional, requires CDK.                                 |
-| `n_heavy_atoms`      | `uint16`      | 2 B          | Number of heavy (non-hydrogen) atoms. Avoids SMILES parsing for basic filtering.                     |
-| `n_atoms`            | `uint16`      | 2 B          | Total atom count including hydrogens. Needed to reshape the coordinate blob.                         |
-| `n_bonds`            | `uint16`      | 2 B          | Number of bonds. Useful for graph-based models without reparsing.                                    |
-| `molecular_weight`   | `float32`     | 4 B          | Exact molecular weight in Daltons. Universally needed for filtering.                                 |
-| `n_conformers`       | `uint8`       | 1 B          | Number of stored conformers (after RMSD-based deduplication).                                        |
-| `conformer_coords`   | `binary`      | K * N * 6 B  | 3D coordinates as raw `float16` bytes, shape `(K, N, 3)` where `K` = conformers, `N` = atoms.        |
-| `conformer_energies` | `binary`      | K * 4 B      | MMFF94 energies as raw `float32` bytes, one per conformer (kcal/mol, lowest first).                  |
+| Column               | Type          | Typical Size | Description                                              |
+| -------------------- | ------------- | ------------ | -------------------------------------------------------- |
+| `smiles`             | `utf8`        | ~50 B        | Canonical graph: atoms, bonds, charges, stereochemistry. |
+| `maccs`              | `binary(21)`  | 21 B         | MACCS structural keys, 166 bits.                         |
+| `ecfp4`              | `binary(256)` | 256 B        | Extended-connectivity fingerprint, radius 2, 2048 bits.  |
+| `fcfp4`              | `binary(256)` | 256 B        | Functional-class fingerprint, radius 2, 2048 bits.       |
+| `pubchem`            | `binary(111)` | 111 B        | PubChem substructure fingerprint, 881 bits. Needs CDK.   |
+| `n_heavy_atoms`      | `uint16`      | 2 B          | Heavy atom count, for filtering without parsing.         |
+| `n_atoms`            | `uint16`      | 2 B          | Total atoms with hydrogens, to reshape coordinates.      |
+| `n_bonds`            | `uint16`      | 2 B          | Bond count, for graph models without reparsing.          |
+| `molecular_weight`   | `float32`     | 4 B          | Exact mass in Daltons, for filtering.                    |
+| `n_conformers`       | `uint8`       | 1 B          | Conformers generated per molecule (fixed `K`, no dedup). |
+| `conformer_coords`   | `binary`      | K * N * 6 B  | `float16` coordinates, shape `(K, N, 3)`.                |
+| `conformer_energies` | `binary`      | K * 4 B      | MMFF94 energies in kcal/mol, lowest first.               |
 
 Coordinates are stored as IEEE 754 `float16` (not `bfloat16`) because PyArrow and the Parquet specification natively support `float16`, while `bfloat16` has no Parquet encoding.
 The quantization error from `float64` to `float16` is under 0.002 Angstroms - well below thermal noise at room temperature (~0.1 Angstroms).
@@ -376,3 +442,19 @@ energies = np.frombuffer(row["conformer_energies"], dtype=np.float32)
 ```
 
 For a typical drug-like molecule (~40 atoms with H, 5 conformers), the coordinate column is ~1.2 KB per molecule in `float16` versus ~15 KB for the previous SDF text format - a 12x reduction.
+
+## Citation
+
+If USearchMolecules helps your research or product, please cite it:
+
+```bibtex
+@software{Vardanian_USearchMolecules,
+  author = {Vardanian, Ash},
+  title = {{USearchMolecules: A Multi-Modal Atlas of 7 Billion Small Molecules}},
+  doi = {10.5281/zenodo.21613664},
+  url = {https://github.com/unum-bio/USearchMolecules},
+  license = {Apache-2.0}
+}
+```
+
+A machine-readable [`CITATION.cff`](CITATION.cff) is provided at the repository root.

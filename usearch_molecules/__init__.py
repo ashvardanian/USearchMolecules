@@ -1,7 +1,8 @@
-"""USearch Molecules - Large Chem-Informatics dataset for drug discovery.
+"""USearchMolecules - Large Multi-Modal Chem-Informatics dataset for drug discovery.
 
-This package provides tools for exploring and searching through a dataset of
-7B+ molecules with binary fingerprints (MACCS, PubChem, ECFP4, FCFP4).
+This package builds and queries multi-modal representations of 7B+ small
+molecules: binary fingerprints (MACCS, PubChem, ECFP4, FCFP4) and 3D conformer
+geometries, indexed with USearch for real-time retrieval at billion scale.
 """
 
 from usearch_molecules.dataset import (
