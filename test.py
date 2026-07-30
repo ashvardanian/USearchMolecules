@@ -19,26 +19,23 @@ The -s flag shows print statements, making it clear:
 - Fallback behavior for problematic molecules
 """
 
-from typing import List, Any
+from typing import Any
 
-import pytest
 import numpy as np
+import pytest
 from rdkit import Chem
 
-from usearchmolecules.to_fingerprint import (
-    smiles_to_maccs_ecfp4_fcfp4,
-    smiles_to_pubchem,
-)
 from usearchmolecules.prep_conformers import (
     generate_conformer_etkdg,
     optimize_all_conformers_mmff,
     process_batch_to_conformers,
 )
+from usearchmolecules.to_fingerprint import (
+    smiles_to_maccs_ecfp4_fcfp4,
+    smiles_to_pubchem,
+)
 
-
-# ============================================================================
-# Formatting Helpers
-# ============================================================================
+# Formatting helpers
 
 
 def print_header(title: str, style: str = "simple"):
@@ -59,7 +56,7 @@ def print_header(title: str, style: str = "simple"):
         print(f"└{'─' * (width - 2)}┘")
 
 
-def print_summary(passed: int, total: int, items: List[str] = None, details: str = None):
+def print_summary(passed: int, total: int, items: list[str] | None = None, details: str | None = None):
     """Print a grouped summary line.
 
     Args:
@@ -84,7 +81,7 @@ def print_summary(passed: int, total: int, items: List[str] = None, details: str
     print(result)
 
 
-def print_table(headers: List[str], rows: List[List[Any]], indent: int = 2):
+def print_table(headers: list[str], rows: list[list[Any]], indent: int = 2):
     """Print a formatted table.
 
     Args:
@@ -103,13 +100,13 @@ def print_table(headers: List[str], rows: List[List[Any]], indent: int = 2):
 
     # Print header
     prefix = " " * indent
-    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+    header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths, strict=True))
     print(f"{prefix}{header_line}")
     print(f"{prefix}{'-' * len(header_line)}")
 
     # Print rows
     for row in rows:
-        row_line = "  ".join(str(cell).ljust(w) for cell, w in zip(row, col_widths))
+        row_line = "  ".join(str(cell).ljust(w) for cell, w in zip(row, col_widths, strict=True))
         print(f"{prefix}{row_line}")
 
 
@@ -229,11 +226,7 @@ class TestFingerprintGeneration:
         print_header("Fingerprint Generation (CDK PubChem)")
 
         # Only test simple molecules for PubChem (requires CDK)
-        simple_molecules = {
-            k: v
-            for k, v in TEST_MOLECULES.items()
-            if k in ["ethane", "ethanol", "benzene", "aspirin"]
-        }
+        simple_molecules = {k: v for k, v in TEST_MOLECULES.items() if k in ["ethane", "ethanol", "benzene", "aspirin"]}
 
         passed = []
         skipped = []
@@ -280,14 +273,14 @@ class TestConformerGeneration:
             assert mol is not None, f"{name}: Failed to parse SMILES"
 
             # Generate conformers (returns molecule with hydrogens and conformers)
-            mol_h, conf_ids = generate_conformer_etkdg(mol, num_confs=10, random_seed=42)
+            mol_h, conformer_ids = generate_conformer_etkdg(mol, num_conformers=10, random_seed=42)
 
-            assert len(conf_ids) > 0, f"{name}: No conformers generated"
-            assert mol_h.GetNumConformers() == len(conf_ids), f"{name}: Conformer count mismatch"
+            assert len(conformer_ids) > 0, f"{name}: No conformers generated"
+            assert mol_h.GetNumConformers() == len(conformer_ids), f"{name}: Conformer count mismatch"
 
             # Check that conformers have 3D coordinates
-            for conf_id in conf_ids:
-                conf = mol_h.GetConformer(conf_id)
+            for conformer_id in conformer_ids:
+                conf = mol_h.GetConformer(conformer_id)
                 pos = conf.GetPositions()
                 assert pos.shape[0] > 0, f"{name}: No atoms in conformer"
                 assert pos.shape[1] == 3, f"{name}: Conformer is not 3D"
@@ -296,7 +289,7 @@ class TestConformerGeneration:
                 assert not np.allclose(pos, 0), f"{name}: Conformer coordinates are all zeros"
 
             passed.append(name)
-            total_conformers += len(conf_ids)
+            total_conformers += len(conformer_ids)
 
         skipped = len([m for m in TEST_MOLECULES if m in MMFF_PROBLEM_MOLECULES])
         print_summary(
@@ -312,19 +305,17 @@ class TestConformerGeneration:
         """Test MMFF optimization for drug-like molecules."""
         print_header("MMFF Optimization (Drug-Like Molecules)")
 
-        drug_molecules = {
-            k: v for k, v in TEST_MOLECULES.items() if k in ["aspirin", "caffeine", "ibuprofen"]
-        }
+        drug_molecules = {k: v for k, v in TEST_MOLECULES.items() if k in ["aspirin", "caffeine", "ibuprofen"]}
 
         table_rows = []
 
         for name, smiles in drug_molecules.items():
             mol = Chem.MolFromSmiles(smiles)
-            mol_h, conf_ids = generate_conformer_etkdg(mol, num_confs=5, random_seed=42)
+            mol_h, conformer_ids = generate_conformer_etkdg(mol, num_conformers=5, random_seed=42)
 
             # Optimize conformers
             energies = optimize_all_conformers_mmff(mol_h, max_iters=200)
-            assert len(energies) == len(conf_ids), f"{name}: Energy count mismatch"
+            assert len(energies) == len(conformer_ids), f"{name}: Energy count mismatch"
 
             # Check that at least some conformers optimized successfully
             valid_energies = [e for e in energies if e[2] != float("inf")]
@@ -367,9 +358,9 @@ class TestConformerGeneration:
                 continue
 
             try:
-                mol_h, conf_ids = generate_conformer_etkdg(mol, num_confs=5, random_seed=42)
+                mol_h, conformer_ids = generate_conformer_etkdg(mol, num_conformers=5, random_seed=42)
 
-                if len(conf_ids) == 0:
+                if len(conformer_ids) == 0:
                     test_results["warnings"].append(f"MMFF Fallback: {name} - ETKDG also failed")
                     failed.append(name)
                     continue
@@ -412,7 +403,7 @@ class TestCornerCases:
             # Test fingerprint generation
             fp_failed = False
             try:
-                maccs, ecfp4, fcfp4 = smiles_to_maccs_ecfp4_fcfp4(smiles)
+                smiles_to_maccs_ecfp4_fcfp4(smiles)
                 unexpected.append(f"{name} (fingerprints worked)")
             except Exception:
                 fp_failed = True
@@ -448,7 +439,7 @@ class TestCornerCases:
             "CC(=O)O",  # Valid: acetic acid
         ]
 
-        mol_blocks, energies, stats = process_batch_to_conformers(
+        mol_blocks, _energies, stats = process_batch_to_conformers(
             smiles_list,
             num_conformers=5,
             optimization_iters=0,
@@ -527,7 +518,7 @@ class TestBatchProcessing:
             "[Fe+2]",  # Iron (will fail MMFF, should fall back)
         ]
 
-        mol_blocks, energies, stats = process_batch_to_conformers(
+        mol_blocks, _energies, stats = process_batch_to_conformers(
             smiles_list,
             num_conformers=5,
             optimization_iters=100,
@@ -576,8 +567,8 @@ class TestEndToEnd:
 
         # Step 2: Generate conformer
         mol = Chem.MolFromSmiles(smiles)
-        mol_h, conf_ids = generate_conformer_etkdg(mol, num_confs=10, random_seed=42)
-        assert len(conf_ids) > 0
+        mol_h, conformer_ids = generate_conformer_etkdg(mol, num_conformers=10, random_seed=42)
+        assert len(conformer_ids) > 0
 
         # Step 3: Optimize with MMFF
         energies = optimize_all_conformers_mmff(mol_h, max_iters=200)
@@ -585,13 +576,12 @@ class TestEndToEnd:
         assert len(valid_energies) > 0
 
         # Step 4: Select best conformer
-        best_conf_id = valid_energies[0][0]
         best_energy = valid_energies[0][2]
         assert best_energy < 100.0, "Energy seems unreasonably high"
 
         table_rows = [
             ["Step 1: Fingerprints", "✓ MACCS, ECFP4, FCFP4 generated"],
-            ["Step 2: Conformers", f"✓ {len(conf_ids)} conformers (ETKDG)"],
+            ["Step 2: Conformers", f"✓ {len(conformer_ids)} conformers (ETKDG)"],
             ["Step 3: Optimization", f"✓ {len(valid_energies)}/{len(energies)} optimized (MMFF)"],
             ["Step 4: Best energy", f"{best_energy:.2f} kcal/mol"],
         ]

@@ -8,11 +8,8 @@ Input:
 
 Output:
     - Same Parquet files augmented with conformer columns:
-      - conformer_3d: binary mol block (SDF format, 2-5 KB per molecule)
-      - conformer_energy: float64 (MMFF94 energy in kcal/mol, or 0.0 if MMFF failed)
-    - Optional separate files:
-      - data/{dataset}/sdf/*.sdf (multi-molecule SDF format)
-      - data/{dataset}/mol2/*.mol2 (Tripos MOL2 for docking software)
+      - conformer_3d: binary V2000 MOL block of the selected conformer (2-5 KB per molecule)
+      - conformer_energy: float64 MMFF94 energy in kcal/mol; 0.0 when unoptimized, inf when generation failed
 
 Conformer Generation Methods:
     - ETKDGv3 (default): Knowledge-based distance geometry with torsion constraints
@@ -57,7 +54,6 @@ Usage:
     uv run python -m usearchmolecules.prep_conformers --datasets example
     uv run python -m usearchmolecules.prep_conformers --datasets example --optimizations 0
     uv run python -m usearchmolecules.prep_conformers --datasets example --conformers 20 --batch-size 2000
-    uv run python -m usearchmolecules.prep_conformers --datasets example --export-sdf --export-mol2
     pixi run python -m usearchmolecules.prep_conformers --datasets example --use-gpu
 
 My defaults for benchmarking:
@@ -71,13 +67,12 @@ With larger batches the H100 yields ~30 mols/s and ~300 conf/s (10 conformers, 2
     pixi run python -m usearchmolecules.prep_conformers --datasets example --batch-size 2000 --use-gpu
 """
 
+import argparse
+import logging
 import os
 import sys
 import time
-import logging
-import argparse
-from typing import Optional, Tuple, List, Dict
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 import numpy as np
 import pyarrow as pa
@@ -85,10 +80,9 @@ import pyarrow.parquet as pq
 from tqdm import tqdm
 
 try:
-    from rdkit import Chem
-    from rdkit.Chem import AllChem
-    from rdkit import RDLogger
     import numkong as nk
+    from rdkit import Chem, RDLogger
+    from rdkit.Chem import AllChem
 except ImportError:
     print("Error: RDKit and NumKong are required for conformer generation")
     print("Install with: uv pip install 'usearch-molecules[dev]'")
@@ -158,7 +152,7 @@ class ConformerStats:
         """Average MMFF94 energy across all conformers (kcal/mol)."""
         return self.sum_energy / self.molecules_processed if self.molecules_processed > 0 else 0.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert stats to dictionary for JSON export."""
         return {
             **asdict(self),
@@ -173,10 +167,10 @@ class ConformerStats:
 
 def generate_conformer_etkdg(
     mol: Chem.Mol,
-    num_confs: int = 10,
+    num_conformers: int = 10,
     random_seed: int = 42,
     use_random_coords: bool = False,
-) -> Tuple[Chem.Mol, List[int]]:
+) -> tuple[Chem.Mol, list[int]]:
     """Generate conformers using ETKDGv3 (Experimental Torsion-angle Knowledge Distance Geometry).
 
     ETKDGv3 is the default since RDKit 2024.03 and uses torsion angle preferences
@@ -185,7 +179,7 @@ def generate_conformer_etkdg(
 
     Args:
         mol: RDKit molecule object
-        num_confs: Number of conformers to generate
+        num_conformers: Number of conformers to generate
         random_seed: Random seed for reproducibility
         use_random_coords: Use random coordinates instead of ETKDG (faster but lower quality)
 
@@ -200,20 +194,20 @@ def generate_conformer_etkdg(
     params.numThreads = 0  # Use all available threads
     params.useRandomCoords = use_random_coords
 
-    conf_ids = AllChem.EmbedMultipleConfs(mol, numConfs=num_confs, params=params)
-    return mol, list(conf_ids)
+    conformer_ids = AllChem.EmbedMultipleConfs(mol, numConfs=num_conformers, params=params)
+    return mol, list(conformer_ids)
 
 
 def optimize_conformer_mmff(
     mol: Chem.Mol,
-    conf_id: int = -1,
+    conformer_id: int = -1,
     max_iters: int = 200,
-) -> Tuple[bool, float]:
+) -> tuple[bool, float]:
     """Optimize a single conformer using MMFF94 force field.
 
     Args:
         mol: RDKit molecule with conformers
-        conf_id: Conformer ID to optimize (-1 for all conformers)
+        conformer_id: Conformer ID to optimize (-1 for all conformers)
         max_iters: Maximum number of optimization iterations
 
     Returns:
@@ -226,9 +220,9 @@ def optimize_conformer_mmff(
         logger.debug("Could not get MMFF properties for molecule")
         return False, float("inf")
 
-    ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
+    ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conformer_id)
     if ff is None:
-        logger.debug(f"Could not create force field for conformer {conf_id}")
+        logger.debug(f"Could not create force field for conformer {conformer_id}")
         return False, float("inf")
 
     # Optimize
@@ -241,7 +235,7 @@ def optimize_conformer_mmff(
 def optimize_all_conformers_mmff(
     mol: Chem.Mol,
     max_iters: int = 200,
-) -> List[Tuple[int, bool, float]]:
+) -> list[tuple[int, bool, float]]:
     """Optimize all conformers and return their energies.
 
     Args:
@@ -249,19 +243,19 @@ def optimize_all_conformers_mmff(
         max_iters: Maximum optimization iterations per conformer
 
     Returns:
-        List of (conf_id, converged, energy) tuples sorted by energy
+        List of (conformer_id, converged, energy) tuples sorted by energy
     """
     results = []
-    for conf_id in range(mol.GetNumConformers()):
-        converged, energy = optimize_conformer_mmff(mol, conf_id, max_iters)
-        results.append((conf_id, converged, energy))
+    for conformer_id in range(mol.GetNumConformers()):
+        converged, energy = optimize_conformer_mmff(mol, conformer_id, max_iters)
+        results.append((conformer_id, converged, energy))
 
     # Sort by energy (lowest first)
     results.sort(key=lambda x: x[2])
     return results
 
 
-def select_lowest_energy_conformer(mol: Chem.Mol, energies: List[Tuple[int, bool, float]]) -> int:
+def select_lowest_energy_conformer(mol: Chem.Mol, energies: list[tuple[int, bool, float]]) -> int:
     """Select the conformer with the lowest MMFF94 energy.
 
     Best practice: The lowest energy conformer is most likely to represent
@@ -269,7 +263,7 @@ def select_lowest_energy_conformer(mol: Chem.Mol, energies: List[Tuple[int, bool
 
     Args:
         mol: RDKit molecule with conformers
-        energies: List of (conf_id, converged, energy) tuples
+        energies: List of (conformer_id, converged, energy) tuples
 
     Returns:
         Conformer ID with lowest energy
@@ -280,7 +274,7 @@ def select_lowest_energy_conformer(mol: Chem.Mol, energies: List[Tuple[int, bool
 
 
 def compute_boltzmann_weights(
-    energies: List[float],
+    energies: list[float],
     temperature: float = 298.15,
 ) -> np.ndarray:
     """Calculate Boltzmann population weights for conformers.
@@ -304,66 +298,26 @@ def compute_boltzmann_weights(
     min_energy = np.min(energies)
     delta_energies = energies - min_energy
 
-    # Calculate Boltzmann factors
+    # Calculate Boltzmann factors, then normalize to weights summing to 1.0
     boltzmann_factors = np.exp(-delta_energies / (R * temperature))
-
-    # Normalize to get weights
-    weights = boltzmann_factors / np.sum(boltzmann_factors)
-    return weights
+    return boltzmann_factors / np.sum(boltzmann_factors)
 
 
-def conformer_to_molblock(mol: Chem.Mol, conf_id: int = -1) -> bytes:
+def conformer_to_molblock(mol: Chem.Mol, conformer_id: int = -1) -> bytes:
     """Serialize conformer to mol block for Parquet storage.
 
     Args:
         mol: RDKit molecule with conformers
-        conf_id: Conformer ID to serialize (-1 for default)
+        conformer_id: Conformer ID to serialize (-1 for default)
 
     Returns:
         Mol block as bytes
     """
-    mol_block = Chem.MolToMolBlock(mol, confId=conf_id)
+    mol_block = Chem.MolToMolBlock(mol, confId=conformer_id)
     return mol_block.encode("utf-8")
 
 
-def export_to_sdf(
-    molecules: List[Tuple[str, Chem.Mol, int, float]],
-    output_path: str,
-):
-    """Export conformers to SDF file.
-
-    Args:
-        molecules: List of (smiles, mol, conf_id, energy) tuples
-        output_path: Path to output SDF file
-    """
-    writer = Chem.SDWriter(output_path)
-    for smiles, mol, conf_id, energy in molecules:
-        mol.SetProp("SMILES", smiles)
-        mol.SetProp("Energy_kcal_mol", f"{energy:.4f}")
-        writer.write(mol, confId=conf_id)
-    writer.close()
-
-
-def export_to_mol2(
-    molecules: List[Tuple[str, Chem.Mol, int, float]],
-    output_dir: str,
-):
-    """Export conformers to MOL2 files (one per molecule).
-
-    MOL2 format is commonly used in docking software like AutoDock, GOLD, and Glide.
-
-    Args:
-        molecules: List of (smiles, mol, conf_id, energy) tuples
-        output_dir: Directory to write MOL2 files
-    """
-    os.makedirs(output_dir, exist_ok=True)
-
-    for idx, (smiles, mol, conf_id, energy) in enumerate(molecules):
-        mol2_path = os.path.join(output_dir, f"mol_{idx:08d}.mol2")
-        Chem.MolToMolFile(mol, mol2_path, confId=conf_id)
-
-
-def compute_rmsd(mol: Chem.Mol, conf_id1: int, conf_id2: int) -> float:
+def compute_rmsd(mol: Chem.Mol, conformer_id_first: int, conformer_id_second: int) -> float:
     """Calculate RMSD between two prealigned conformers.
 
     Conformers from ETKDG share the same coordinate frame, so no alignment is needed.
@@ -372,22 +326,22 @@ def compute_rmsd(mol: Chem.Mol, conf_id1: int, conf_id2: int) -> float:
 
     Args:
         mol: RDKit molecule with conformers
-        conf_id1: First conformer ID
-        conf_id2: Second conformer ID
+        conformer_id_first: First conformer ID
+        conformer_id_second: Second conformer ID
 
     Returns:
         RMSD in Angstroms
     """
-    pos1 = mol.GetConformer(conf_id1).GetPositions().astype(np.float32)
-    pos2 = mol.GetConformer(conf_id2).GetPositions().astype(np.float32)
-    return float(nk.rmsd(pos1, pos2).rmsd)
+    positions_first = mol.GetConformer(conformer_id_first).GetPositions().astype(np.float32)
+    positions_second = mol.GetConformer(conformer_id_second).GetPositions().astype(np.float32)
+    return float(nk.rmsd(positions_first, positions_second).rmsd)
 
 
 def remove_duplicate_conformers(
     mol: Chem.Mol,
-    energies: List[Tuple[int, bool, float]],
+    energies: list[tuple[int, bool, float]],
     rmsd_threshold: float = 0.5,
-) -> List[Tuple[int, bool, float]]:
+) -> list[tuple[int, bool, float]]:
     """Remove conformers that are too similar based on RMSD.
 
     Extracts all conformer coordinates once, then uses NumKong's SIMD-accelerated
@@ -395,7 +349,7 @@ def remove_duplicate_conformers(
 
     Args:
         mol: RDKit molecule with conformers
-        energies: List of (conf_id, converged, energy) tuples (should be sorted by energy)
+        energies: List of (conformer_id, converged, energy) tuples (should be sorted by energy)
         rmsd_threshold: RMSD threshold in Angstroms for duplicate detection
 
     Returns:
@@ -405,32 +359,31 @@ def remove_duplicate_conformers(
         return energies
 
     # Extract all conformer positions once to avoid repeated RDKit→NumPy conversion
-    positions = {conf_id: mol.GetConformer(conf_id).GetPositions().astype(np.float32) for conf_id, _, _ in energies}
+    positions = {
+        conformer_id: mol.GetConformer(conformer_id).GetPositions().astype(np.float32)
+        for conformer_id, _, _ in energies
+    }
 
     unique_conformers = [energies[0]]  # Keep lowest energy conformer
 
-    for conf_id, converged, energy in energies[1:]:
-        is_duplicate = False
-        for unique_id, _, _ in unique_conformers:
-            rmsd = float(nk.rmsd(positions[conf_id], positions[unique_id]).rmsd)
-            if rmsd < rmsd_threshold:
-                is_duplicate = True
-                break
-
-        if not is_duplicate:
-            unique_conformers.append((conf_id, converged, energy))
+    for conformer_id, converged, energy in energies[1:]:
+        candidate = positions[conformer_id]
+        kept = np.stack([positions[unique_id] for unique_id, _, _ in unique_conformers])
+        rmsds = np.asarray(nk.rmsd(np.broadcast_to(candidate, kept.shape), kept).rmsd)
+        if not np.any(rmsds < rmsd_threshold):
+            unique_conformers.append((conformer_id, converged, energy))
 
     return unique_conformers
 
 
 def process_batch_to_conformers_gpu(
-    smiles_list: List[str],
+    smiles_list: list[str],
     num_conformers: int = 10,
     optimization_iters: int = 200,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
     random_seed: int = 42,
-) -> Tuple[List[Optional[bytes]], List[float], ConformerStats]:
+) -> tuple[list[bytes | None], list[float], ConformerStats]:
     """Process a batch of SMILES strings using GPU-accelerated nvMolKit.
 
     Uses nvMolKit's batch processing for GPU-accelerated conformer generation and optimization.
@@ -468,12 +421,12 @@ def process_batch_to_conformers_gpu(
 
     # Pre-allocate output arrays with correct length
     batch_size = len(smiles_list)
-    mol_blocks: List[Optional[bytes]] = [None] * batch_size
-    energies_list: List[float] = [float("inf")] * batch_size
+    mol_blocks: list[bytes | None] = [None] * batch_size
+    energies_list: list[float] = [float("inf")] * batch_size
 
     # Parse SMILES and prepare molecules for GPU processing
     molecules = []
-    molecule_to_batch_idx = []  # Maps molecules list index → smiles_list index
+    molecule_to_batch_index = []  # Maps molecules list index → smiles_list index
 
     for idx, smiles in enumerate(smiles_list):
         try:
@@ -484,7 +437,7 @@ def process_batch_to_conformers_gpu(
 
             mol = Chem.AddHs(mol)
             molecules.append(mol)
-            molecule_to_batch_idx.append(idx)
+            molecule_to_batch_index.append(idx)
         except Exception:
             stats.molecules_failed += 1
 
@@ -532,7 +485,7 @@ def process_batch_to_conformers_gpu(
 
     # Optimize conformers on GPU if requested and capture energies
     # Pre-filter molecules to avoid nvMolKit crashes on MMFF-incompatible molecules
-    mol_energies_list: List[List[float]] = [[] for _ in molecules]  # Initialize with empty lists
+    mol_energies_list: list[list[float]] = [[] for _ in molecules]  # Initialize with empty lists
     if optimization_iters > 0:
         # Pre-check each molecule for MMFF compatibility (same check nvMolKit does internally)
         valid_indices = []
@@ -563,8 +516,8 @@ def process_batch_to_conformers_gpu(
                     valid_molecules, maxIters=optimization_iters, hardwareOptions=hardware_opts
                 )
                 # Map results back to original molecule indices
-                for valid_idx, orig_idx in enumerate(valid_indices):
-                    mol_energies_list[orig_idx] = valid_energies[valid_idx]
+                for valid_index, original_index in enumerate(valid_indices):
+                    mol_energies_list[original_index] = valid_energies[valid_index]
 
                 stats.conformers_optimized += sum(len(e) for e in valid_energies)
             except RuntimeError as e:
@@ -579,8 +532,8 @@ def process_batch_to_conformers_gpu(
                 raise
 
     # Process results for each molecule
-    for mol_idx, mol in enumerate(molecules):
-        batch_idx = molecule_to_batch_idx[mol_idx]
+    for molecule_index, mol in enumerate(molecules):
+        batch_index = molecule_to_batch_index[molecule_index]
 
         try:
             if mol.GetNumConformers() == 0:
@@ -588,13 +541,13 @@ def process_batch_to_conformers_gpu(
                 continue
 
             # Get energies from nvMolKit or set to 0 if no optimization
-            # Note: mol_energies_list[mol_idx] will be empty for MMFF-incompatible molecules
-            if optimization_iters > 0 and mol_idx < len(mol_energies_list) and mol_energies_list[mol_idx]:
-                conformer_energies = mol_energies_list[mol_idx]
-                # Build (conf_id, converged, energy) tuples sorted by energy
+            # Note: mol_energies_list[molecule_index] will be empty for MMFF-incompatible molecules
+            if optimization_iters > 0 and molecule_index < len(mol_energies_list) and mol_energies_list[molecule_index]:
+                conformer_energies = mol_energies_list[molecule_index]
+                # Build (conformer_id, converged, energy) tuples sorted by energy
                 energies = [
-                    (conf_id, True, conformer_energies[conf_id])
-                    for conf_id in range(min(len(conformer_energies), mol.GetNumConformers()))
+                    (conformer_id, True, conformer_energies[conformer_id])
+                    for conformer_id in range(min(len(conformer_energies), mol.GetNumConformers()))
                 ]
                 energies.sort(key=lambda x: x[2])
             else:
@@ -610,13 +563,13 @@ def process_batch_to_conformers_gpu(
                 energies = remove_duplicate_conformers(mol, energies, rmsd_threshold)
 
             # Select lowest energy conformer
-            best_conf_id = energies[0][0]
+            best_conformer_id = energies[0][0]
             best_energy = energies[0][2]
 
             # Serialize best conformer
-            mol_block = conformer_to_molblock(mol, best_conf_id)
-            mol_blocks[batch_idx] = mol_block
-            energies_list[batch_idx] = best_energy
+            mol_block = conformer_to_molblock(mol, best_conformer_id)
+            mol_blocks[batch_index] = mol_block
+            energies_list[batch_index] = best_energy
 
             # Update stats
             stats.molecules_processed += 1
@@ -625,7 +578,7 @@ def process_batch_to_conformers_gpu(
             stats.max_energy = max(stats.max_energy, best_energy)
 
         except Exception as e:
-            logger.debug(f"Failed to process molecule at batch index {batch_idx}: {e}")
+            logger.debug(f"Failed to process molecule at batch index {batch_index}: {e}")
             stats.molecules_failed += 1
 
     stats.total_generation_time = time.time() - generation_start
@@ -638,13 +591,13 @@ def process_batch_to_conformers_gpu(
 
 
 def process_batch_to_conformers(
-    smiles_list: List[str],
+    smiles_list: list[str],
     num_conformers: int = 10,
     optimization_iters: int = 200,
     remove_duplicates: bool = True,
     rmsd_threshold: float = 0.5,
     random_seed: int = 42,
-) -> Tuple[List[Optional[bytes]], List[float], ConformerStats]:
+) -> tuple[list[bytes | None], list[float], ConformerStats]:
     """Process a batch of SMILES strings to generate conformers efficiently (CPU).
 
     Processes molecules serially but RDKit internally uses multithreading for conformer generation.
@@ -670,8 +623,8 @@ def process_batch_to_conformers(
 
     # Pre-allocate output arrays with correct length
     batch_size = len(smiles_list)
-    mol_blocks: List[Optional[bytes]] = [None] * batch_size
-    energies_list: List[float] = [float("inf")] * batch_size
+    mol_blocks: list[bytes | None] = [None] * batch_size
+    energies_list: list[float] = [float("inf")] * batch_size
 
     # Process molecules in batch (RDKit handles internal parallelism)
     for idx, smiles in enumerate(smiles_list):
@@ -683,13 +636,13 @@ def process_batch_to_conformers(
                 continue
 
             # Generate conformers (returns molecule with hydrogens + conf IDs)
-            mol, conf_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
+            mol, conformer_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
 
-            if len(conf_ids) == 0:
+            if len(conformer_ids) == 0:
                 stats.molecules_failed += 1
                 continue
 
-            stats.conformers_generated += len(conf_ids)
+            stats.conformers_generated += len(conformer_ids)
 
             # Optimize conformers if requested
             if optimization_iters > 0:
@@ -707,20 +660,20 @@ def process_batch_to_conformers(
                         valid_energies = remove_duplicate_conformers(mol, valid_energies, rmsd_threshold)
 
                     # Select lowest energy conformer
-                    best_conf_id = valid_energies[0][0]
+                    best_conformer_id = valid_energies[0][0]
                     best_energy = valid_energies[0][2]
                 else:
                     # MMFF failed for all conformers - fall back to unoptimized
                     logger.debug(f"MMFF optimization failed for {smiles}, using unoptimized conformer")
-                    best_conf_id = conf_ids[0]
+                    best_conformer_id = conformer_ids[0]
                     best_energy = 0.0
             else:
                 # No optimization - just pick first conformer
-                best_conf_id = conf_ids[0]
+                best_conformer_id = conformer_ids[0]
                 best_energy = 0.0
 
             # Serialize best conformer
-            mol_block = conformer_to_molblock(mol, best_conf_id)
+            mol_block = conformer_to_molblock(mol, best_conformer_id)
             mol_blocks[idx] = mol_block
             energies_list[idx] = best_energy
 
@@ -800,10 +753,10 @@ def augment_parquet_with_conformers(
         postfix={"mol/s": 0, "conf/s": 0, "failed": 0},
     )
 
-    for batch_idx in range(num_batches):
-        start_idx = batch_idx * batch_size
-        end_idx = min((batch_idx + 1) * batch_size, len(smiles_array))
-        batch_smiles = [str(s) for s in smiles_array[start_idx:end_idx]]
+    for batch_index in range(num_batches):
+        start_index = batch_index * batch_size
+        end_index = min((batch_index + 1) * batch_size, len(smiles_array))
+        batch_smiles = [str(s) for s in smiles_array[start_index:end_index]]
 
         # Process entire batch (GPU or CPU)
         process_fn = process_batch_to_conformers_gpu if use_gpu else process_batch_to_conformers
@@ -816,7 +769,7 @@ def augment_parquet_with_conformers(
         )
 
         # Accumulate results
-        for mol_block, energy in zip(mol_blocks, energies):
+        for mol_block, energy in zip(mol_blocks, energies, strict=True):
             if mol_block is None:
                 conformer_3d_list.append(b"")
                 conformer_energy_list.append(float("inf"))
@@ -936,16 +889,6 @@ def main():
         "--use-gpu",
         action="store_true",
         help="Use nvMolKit GPU acceleration (requires CUDA, nvMolKit)",
-    )
-    parser.add_argument(
-        "--export-sdf",
-        action="store_true",
-        help="Export conformers to SDF files",
-    )
-    parser.add_argument(
-        "--export-mol2",
-        action="store_true",
-        help="Export conformers to MOL2 files (for docking software)",
     )
 
     args = parser.parse_args()

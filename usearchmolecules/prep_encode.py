@@ -21,34 +21,19 @@ Usage:
     uv run python -m usearchmolecules.prep_encode --datasets example --processes 8
 """
 
-import os
-import logging
 import argparse
-from typing import List, Callable
+import logging
+import os
+from collections.abc import Callable
 from multiprocessing import Process, cpu_count
 
-import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from usearch.index import Index, CompiledMetric, MetricKind, MetricSignature, ScalarKind
-from usearch.eval import self_recall, SearchStats
-
-from usearchmolecules.metrics_numba import (
-    tanimoto_conditional,
-    tanimoto_maccs,
-)
+from usearchmolecules.dataset import write_table
 from usearchmolecules.to_fingerprint import (
     smiles_to_maccs_ecfp4_fcfp4,
     smiles_to_pubchem,
-    shape_mixed,
-    shape_maccs,
-)
-
-from usearchmolecules.dataset import (
-    write_table,
-    FingerprintedDataset,
-    FingerprintedEntry,
 )
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
@@ -57,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 def augment_with_rdkit(parquet_path: os.PathLike):
     meta = pq.read_metadata(parquet_path)
-    column_names: List[str] = meta.schema.names
+    column_names: list[str] = meta.schema.names
     if "maccs" in column_names and "ecfp4" in column_names and "fcfp4" in column_names:
         return
 
@@ -92,7 +77,7 @@ def augment_with_rdkit(parquet_path: os.PathLike):
 
 def augment_with_cdk(parquet_path: os.PathLike):
     meta = pq.read_metadata(parquet_path)
-    column_names: List[str] = meta.schema.names
+    column_names: list[str] = meta.schema.names
     if "pubchem" in column_names:
         return
 
@@ -119,18 +104,14 @@ def augment_parquets_shard(
     shard_index: int,
     shards_count: int,
 ):
-    filenames: List[str] = sorted(os.listdir(parquet_dir))
+    filenames: list[str] = sorted(os.listdir(parquet_dir))
     files_count = len(filenames)
     try:
         for file_idx in range(shard_index, files_count, shards_count):
             try:
                 filename = filenames[file_idx]
                 augmentation(os.path.join(parquet_dir, filename))
-                logger.info(
-                    "Augmented shard {}. Process # {} / {}".format(
-                        filename, shard_index, shards_count
-                    )
-                )
+                logger.info(f"Augmented shard {filename}. Process # {shard_index} / {shards_count}")
             except KeyboardInterrupt as e:
                 raise e
 
@@ -158,232 +139,6 @@ def augment_parquet_shards(
             p.join()
     else:
         augment_parquets_shard(parquet_dir, augmentation, 0, 1)
-
-
-def shards_index(dataset: FingerprintedDataset):
-    os.makedirs(os.path.join(dataset.dir, "usearch-maccs"), exist_ok=True)
-    os.makedirs(os.path.join(dataset.dir, "usearch-maccs+ecfp4"), exist_ok=True)
-
-    for shard_idx, shard in enumerate(dataset.shards):
-        index_path_maccs = os.path.join(dataset.dir, "usearch-maccs", shard.name + ".usearch")
-        index_path_mixed = os.path.join(dataset.dir, "usearch-maccs+ecfp4", shard.name + ".usearch")
-
-        if (
-            Index.metadata(index_path_maccs) is not None
-            and Index.metadata(index_path_mixed) is not None
-        ):
-            continue
-        logger.info(f"Starting {shard_idx + 1} / {len(dataset.shards)}")
-        table = shard.load_table()
-        n = len(table)
-
-        # No need to shuffle the entries as they already are:
-        # order = np.arange(len(entries))
-        # np.random.shuffle(order)
-        # keys = keys[order]
-        keys = np.arange(shard.first_key, shard.first_key + n)
-        maccs_fingerprints = [table["maccs"][i].as_buffer() for i in range(n)]
-        ecfp4_fingerprints = [table["ecfp4"][i].as_buffer() for i in range(n)]
-
-        # First construct the index just for MACCS representations
-        vectors = np.vstack(
-            [
-                FingerprintedEntry.from_parts(
-                    None,
-                    maccs_fingerprints[i],
-                    None,
-                    None,
-                    shape_maccs,
-                ).fingerprint
-                for i in range(n)
-            ]
-        )
-
-        index_maccs = Index(
-            ndim=shape_maccs.nbits,
-            dtype=ScalarKind.B1,
-            metric=CompiledMetric(
-                pointer=tanimoto_maccs.address,
-                kind=MetricKind.Tanimoto,
-                signature=MetricSignature.ArrayArray,
-            ),
-        )
-        index_maccs.add(
-            keys,
-            vectors,
-            log=f"Building {index_path_maccs}",
-            batch_size=100_000,
-        )
-
-        # Optional self-recall evaluation:
-        stats: SearchStats = self_recall(index_maccs, sample=0.01)
-        logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-        logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-        index_maccs.save(index_path_maccs)
-
-        # Next construct the index for mixed MACCS and ECFP4 representations
-        vectors = np.vstack(
-            [
-                FingerprintedEntry.from_parts(
-                    None,
-                    maccs_fingerprints[i],
-                    ecfp4_fingerprints[i],
-                    None,
-                    shape_mixed,
-                ).fingerprint
-                for i in range(n)
-            ]
-        )
-        index_mixed = Index(
-            ndim=shape_mixed.nbits,
-            dtype=ScalarKind.B1,
-            metric=CompiledMetric(
-                pointer=tanimoto_conditional.address,
-                kind=MetricKind.Tanimoto,
-                signature=MetricSignature.ArrayArray,
-            ),
-        )
-        index_mixed.add(
-            keys,
-            vectors,
-            log=f"Building {index_path_mixed}",
-            batch_size=100_000,
-        )
-
-        # Optional self-recall evaluation:
-        stats: SearchStats = self_recall(index_mixed, sample=0.01)
-        logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-        logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-        index_mixed.save(index_path_mixed)
-
-        # Discard the objects to save some memory
-        dataset.shards[shard_idx].table_cached = None
-        dataset.shards[shard_idx].index_cached = None
-
-
-def mono_index_maccs(dataset: FingerprintedDataset):
-    index_path_maccs = os.path.join("indexes", dataset.dir, "usearch-maccs.usearch")
-    os.makedirs(os.path.join("indexes", dataset.dir), exist_ok=True)
-
-    index_maccs = Index(
-        ndim=shape_maccs.nbits,
-        dtype=ScalarKind.B1,
-        metric=CompiledMetric(
-            pointer=tanimoto_maccs.address,
-            kind=MetricKind.Tanimoto,
-            signature=MetricSignature.ArrayArray,
-        ),
-        # path=index_path_maccs,
-    )
-
-    try:
-        for shard_idx, shard in enumerate(dataset.shards):
-            if shard.first_key in index_maccs:
-                logger.info(f"Skipping {shard_idx + 1} / {len(dataset.shards)}")
-                continue
-
-            logger.info(f"Starting {shard_idx + 1} / {len(dataset.shards)}")
-            table = shard.load_table(["maccs"])
-            n = len(table)
-
-            # No need to shuffle the entries as they already are:
-            keys = np.arange(shard.first_key, shard.first_key + n)
-            maccs_fingerprints = [table["maccs"][i].as_buffer() for i in range(n)]
-
-            # First construct the index just for MACCS representations
-            vectors = np.vstack(
-                [
-                    FingerprintedEntry.from_parts(
-                        None,
-                        maccs_fingerprints[i],
-                        None,
-                        None,
-                        shape_maccs,
-                    ).fingerprint
-                    for i in range(n)
-                ]
-            )
-
-            index_maccs.add(keys, vectors, log=f"Building {index_path_maccs}")
-
-            # Optional self-recall evaluation:
-            # stats: SearchStats = self_recall(index_maccs, sample=1000)
-            # logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-            # logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-            if shard_idx % 100 == 0:
-                index_maccs.save(index_path_maccs)
-
-            # Discard the objects to save some memory
-            dataset.shards[shard_idx].table_cached = None
-            dataset.shards[shard_idx].index_cached = None
-
-        index_maccs.save(index_path_maccs)
-        index_maccs.reset()
-    except KeyboardInterrupt:
-        pass
-
-
-def mono_index_mixed(dataset: FingerprintedDataset):
-    index_path_mixed = os.path.join("indexes", dataset.dir, "usearch-maccs+ecfp4.usearch")
-    os.makedirs(os.path.join("indexes", dataset.dir), exist_ok=True)
-
-    index_mixed = Index(
-        ndim=shape_mixed.nbits,
-        dtype=ScalarKind.B1,
-        metric=CompiledMetric(
-            pointer=tanimoto_conditional.address,
-            kind=MetricKind.Tanimoto,
-            signature=MetricSignature.ArrayArray,
-        ),
-        # path=index_path_mixed,
-    )
-
-    try:
-        for shard_idx, shard in enumerate(dataset.shards):
-            if shard.first_key in index_mixed:
-                logger.info(f"Skipping {shard_idx + 1} / {len(dataset.shards)}")
-                continue
-
-            logger.info(f"Starting {shard_idx + 1} / {len(dataset.shards)}")
-            table = shard.load_table(["maccs", "ecfp4"])
-            n = len(table)
-
-            # No need to shuffle the entries as they already are:
-            keys = np.arange(shard.first_key, shard.first_key + n)
-            maccs_fingerprints = [table["maccs"][i].as_buffer() for i in range(n)]
-            ecfp4_fingerprints = [table["ecfp4"][i].as_buffer() for i in range(n)]
-
-            # First construct the index just for MACCS representations
-            vectors = np.vstack(
-                [
-                    FingerprintedEntry.from_parts(
-                        None,
-                        maccs_fingerprints[i],
-                        ecfp4_fingerprints[i],
-                        None,
-                        shape_mixed,
-                    ).fingerprint
-                    for i in range(n)
-                ]
-            )
-
-            index_mixed.add(keys, vectors, log=f"Building {index_path_mixed}")
-
-            # Optional self-recall evaluation:
-            # stats: SearchStats = self_recall(index_mixed, sample=1000)
-            # logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-            # logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-            if shard_idx % 50 == 0:
-                index_mixed.save(index_path_mixed)
-
-            # Discard the objects to save some memory
-            dataset.shards[shard_idx].table_cached = None
-            dataset.shards[shard_idx].index_cached = None
-
-        index_mixed.save(index_path_mixed)
-        index_mixed.reset()
-    except KeyboardInterrupt:
-        pass
 
 
 main_epilog = """
@@ -432,9 +187,7 @@ def main():
     args = parser.parse_args()
 
     logger.info("Adding molecular fingerprints to Parquet files")
-    logger.info(
-        f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes} | Skip CDK: {args.skip_cdk}"
-    )
+    logger.info(f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes} | Skip CDK: {args.skip_cdk}")
 
     for dataset in args.datasets:
         parquet_dir = f"data/{dataset}/parquet"
