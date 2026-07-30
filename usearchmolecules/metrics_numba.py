@@ -14,7 +14,7 @@ Learn more:
 - Numba cfunc: https://numba.pydata.org/numba-doc/latest/user/cfunc.html
 """
 
-from numba import cfunc, types, carray, njit
+from numba import carray, cfunc, njit, types
 
 numba_signature = types.float32(types.CPointer(types.uint32), types.CPointer(types.uint32))
 
@@ -24,8 +24,7 @@ def word_popcount(v):
     """Count set bits in a 32-bit unsigned integer using bitwise operations."""
     v = v - ((v >> 1) & 0x55555555)
     v = (v & 0x33333333) + ((v >> 2) & 0x33333333)
-    c = types.uint32((v + (v >> 4) & 0xF0F0F0F) * 0x1010101) >> 24
-    return c
+    return types.uint32((v + (v >> 4) & 0xF0F0F0F) * 0x1010101) >> 24
 
 
 @cfunc(numba_signature)

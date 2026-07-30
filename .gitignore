@@ -43,7 +43,8 @@ htmlcov/
 .tox/
 *.cover
 
-# Type checking
+# Linting and type checking
+.ruff_cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json

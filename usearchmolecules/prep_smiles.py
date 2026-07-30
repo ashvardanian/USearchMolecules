@@ -22,12 +22,12 @@ Usage:
     uv run python -m usearchmolecules.prep_smiles --datasets example pubchem
 """
 
-import os
-import logging
 import argparse
+import logging
+import os
 
-from tqdm import tqdm
 from stringzilla import File
+from tqdm import tqdm
 
 from usearchmolecules.dataset import FingerprintedDataset
 

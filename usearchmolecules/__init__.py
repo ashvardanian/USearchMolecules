@@ -8,17 +8,17 @@ geometries, indexed with USearch for real-time retrieval at billion scale.
 from importlib.metadata import PackageNotFoundError, version
 
 from usearchmolecules.dataset import (
+    BATCH_SIZE,
+    SHARD_SIZE,
     FingerprintedDataset,
     FingerprintedEntry,
     FingerprintedShard,
-    SHARD_SIZE,
-    BATCH_SIZE,
 )
 from usearchmolecules.to_fingerprint import (
-    smiles_to_maccs_ecfp4_fcfp4,
     FingerprintShape,
     shape_maccs,
     shape_mixed,
+    smiles_to_maccs_ecfp4_fcfp4,
 )
 
 try:
@@ -27,13 +27,13 @@ except PackageNotFoundError:  # running from a source checkout without an instal
     __version__ = "0.0.0"
 
 __all__ = [
+    "BATCH_SIZE",
+    "SHARD_SIZE",
+    "FingerprintShape",
     "FingerprintedDataset",
     "FingerprintedEntry",
     "FingerprintedShard",
-    "SHARD_SIZE",
-    "BATCH_SIZE",
-    "smiles_to_maccs_ecfp4_fcfp4",
-    "FingerprintShape",
     "shape_maccs",
     "shape_mixed",
+    "smiles_to_maccs_ecfp4_fcfp4",
 ]

@@ -12,13 +12,12 @@ Learn more:
 - Streamlit: https://docs.streamlit.io
 - 3Dmol.js: https://3dmol.csb.pitt.edu
 """
+
 import py3Dmol
 import streamlit as st
 import streamlit.components.v1 as components
-
 from rdkit import Chem
 from rdkit.Chem import AllChem
-
 from usearch.eval import measure_seconds
 
 from usearchmolecules.dataset import FingerprintedDataset, shape_mixed
@@ -31,9 +30,7 @@ st.set_page_config(
 )
 st.title("USearchMolecules")
 
-max_results = st.sidebar.select_slider(
-    "Similar Molecules to Fetch", (1, 10, 100, 1000), 100
-)
+max_results = st.sidebar.select_slider("Similar Molecules to Fetch", (1, 10, 100, 1000), 100)
 
 st.sidebar.markdown(
     """
@@ -42,9 +39,7 @@ as MACCS and ECFP4 representation of different molecules may still be identical.
 """
 )
 
-expansion_search = st.sidebar.select_slider(
-    "Expansion Factor for Search", (64, 512, 4096), 4096
-)
+expansion_search = st.sidebar.select_slider("Expansion Factor for Search", (64, 512, 4096), 4096)
 
 st.sidebar.markdown(
     """
@@ -108,8 +103,7 @@ def interactive(
     if surface:
         viewer.addSurface(py3Dmol.SAS, {"opacity": opacity})
     viewer.zoomTo()
-    html = viewer._make_html()
-    return html
+    return viewer._make_html()
 
 
 query_smiles = st.text_input("Enter a valid SMILES string", data.random_smiles())
@@ -124,15 +118,13 @@ else:
             log=st.progress,
         )
     )
-    st.success(
-        f"Found {len(results)} similar molecules in {seconds:.3f} seconds. Showing top 3 results"
-    )
+    st.success(f"Found {len(results)} similar molecules in {seconds:.3f} seconds. Showing top 3 results")
 
     # Remove the match from results
     results_smiles: list[str] = []
     results_scores: list[float] = []
     found_query = False
-    for key, smiles, distance in results:
+    for _key, smiles, distance in results:
         if smiles == query_smiles:
             found_query = True
         else:
@@ -176,8 +168,8 @@ else:
             padding: 0;
             border-radius: 0;
             position: relative;
-            overflow: hidden; 
-            font-family: 'Arial', sans-serif; 
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
         }}
         .light-gray-bg {{
             background-color: {color_light};
@@ -189,7 +181,7 @@ else:
             position: absolute;
             bottom: 10px;
             right: 10px;
-            color: {color_accent}; 
+            color: {color_accent};
             background-color: white;
             border-radius: 50%;
             padding: 5px 10px;
@@ -199,20 +191,20 @@ else:
         .tile iframe {{
             width: 100%;
             height: 100%;
-            border: none; 
+            border: none;
         }}
         .tiles-container {{
             display: grid;
             grid-template-columns: 1fr 1fr;
             grid-template-rows: 1fr 1fr;
-            gap: 0; 
+            gap: 0;
             height: 80vh;
-            width: 100%; 
+            width: 100%;
         }}
         h3 {{
             text-align: center;
-            overflow-wrap: break-word; 
-            padding: 0 10px; 
+            overflow-wrap: break-word;
+            padding: 0 10px;
             max-width: 90%;
         }}
     </style>
