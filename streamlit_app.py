@@ -21,7 +21,7 @@ from rdkit.Chem import AllChem
 
 from usearch.eval import measure_seconds
 
-from usearch_molecules.dataset import FingerprintedDataset, shape_mixed
+from usearchmolecules.dataset import FingerprintedDataset, shape_mixed
 
 st.set_page_config(
     page_icon="⚗️",

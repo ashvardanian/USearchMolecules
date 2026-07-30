@@ -1,58 +1,60 @@
-"""Fingerprint Generation - Add molecular fingerprints to Parquet files.
+"""Index Generation - Build USearch similarity indexes for molecular fingerprints.
 
-Augments Parquet files with molecular fingerprints computed using RDKit and CDK,
-enabling similarity search and clustering operations.
+Builds HNSW (Hierarchical Navigable Small World) indexes using USearch for fast
+approximate nearest neighbor search on molecular fingerprints.
 
 Input:
-    - data/{dataset}/parquet/*.parquet - Parquet files with 'smiles' column
+    - data/{dataset}/parquet/*.parquet - Parquet files with fingerprint columns:
+      "maccs", "ecfp4", "fcfp4", "pubchem"
 
 Output:
-    - Same Parquet files augmented with fingerprint columns:
-      - maccs: MACCS keys (166 bits → 21 bytes)
-      - ecfp4: Extended Connectivity FP diameter 4 (2048 bits → 256 bytes)
-      - fcfp4: Functional Class FP diameter 4 (2048 bits → 256 bytes)
-      - pubchem: PubChem fingerprints (881 bits → 111 bytes)
+    - data/{dataset}/index-maccs.usearch - MACCS fingerprint index (166 bits)
+    - data/{dataset}/index-maccs+ecfp4.usearch - Hybrid MACCS+ECFP4 index (2214 bits)
+
+Index Types:
+    - MACCS: 166-bit structural keys for basic similarity search
+    - Mixed: MACCS (166 bits) + ECFP4 (2048 bits) for comprehensive similarity
+
+HNSW Parameters:
+    - Construction: Multi-threaded graph building
+    - Distance: Tanimoto similarity (custom Numba-compiled metric)
+    - Accuracy: Self-recall evaluation available (optional)
 
 Usage:
 
-    uv run python -m usearch_molecules.prep_encode
-    uv run python -m usearch_molecules.prep_encode --datasets example
-    uv run python -m usearch_molecules.prep_encode --datasets example --skip-cdk
-    uv run python -m usearch_molecules.prep_encode --datasets example --processes 8
+    uv run python -m usearchmolecules.prep_index
+    uv run python -m usearchmolecules.prep_index --datasets example
+    uv run python -m usearchmolecules.prep_index --datasets example pubchem
 """
 
 import os
-import sys
 import logging
 import argparse
 from typing import List, Callable
-from multiprocessing import Process, cpu_count
+from multiprocessing import Process
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from usearch.index import Index, CompiledMetric, MetricKind, MetricSignature, ScalarKind
-from usearch.eval import self_recall, SearchStats
 
-from usearch_molecules.metrics_numba import (
-    tanimoto_conditional,
+from usearchmolecules.metrics_numba import (
+    tanimoto_mixed,
     tanimoto_maccs,
 )
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.dataset import (
+    write_table,
+    FingerprintedDataset,
+    FingerprintedEntry,
+)
+from usearchmolecules.to_fingerprint import (
     smiles_to_maccs_ecfp4_fcfp4,
     smiles_to_pubchem,
     shape_mixed,
     shape_maccs,
 )
 
-from usearch_molecules.dataset import (
-    write_table,
-    FingerprintedDataset,
-    FingerprintedEntry,
-)
-
-logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
 
@@ -161,110 +163,9 @@ def augment_parquet_shards(
         augment_parquets_shard(parquet_dir, augmentation, 0, 1)
 
 
-def shards_index(dataset: FingerprintedDataset):
-    os.makedirs(os.path.join(dataset.dir, "usearch-maccs"), exist_ok=True)
-    os.makedirs(os.path.join(dataset.dir, "usearch-maccs+ecfp4"), exist_ok=True)
-
-    for shard_idx, shard in enumerate(dataset.shards):
-        index_path_maccs = os.path.join(dataset.dir, "usearch-maccs", shard.name + ".usearch")
-        index_path_mixed = os.path.join(dataset.dir, "usearch-maccs+ecfp4", shard.name + ".usearch")
-
-        if (
-            Index.metadata(index_path_maccs) is not None
-            and Index.metadata(index_path_mixed) is not None
-        ):
-            continue
-        logger.info(f"Starting {shard_idx + 1} / {len(dataset.shards)}")
-        table = shard.load_table()
-        n = len(table)
-
-        # No need to shuffle the entries as they already are:
-        # order = np.arange(len(entries))
-        # np.random.shuffle(order)
-        # keys = keys[order]
-        keys = np.arange(shard.first_key, shard.first_key + n)
-        maccs_fingerprints = [table["maccs"][i].as_buffer() for i in range(n)]
-        ecfp4_fingerprints = [table["ecfp4"][i].as_buffer() for i in range(n)]
-
-        # First construct the index just for MACCS representations
-        vectors = np.vstack(
-            [
-                FingerprintedEntry.from_parts(
-                    None,
-                    maccs_fingerprints[i],
-                    None,
-                    None,
-                    shape_maccs,
-                ).fingerprint
-                for i in range(n)
-            ]
-        )
-
-        index_maccs = Index(
-            ndim=shape_maccs.nbits,
-            dtype=ScalarKind.B1,
-            metric=CompiledMetric(
-                pointer=tanimoto_maccs.address,
-                kind=MetricKind.Tanimoto,
-                signature=MetricSignature.ArrayArray,
-            ),
-        )
-        index_maccs.add(
-            keys,
-            vectors,
-            log=f"Building {index_path_maccs}",
-            batch_size=100_000,
-        )
-
-        # Optional self-recall evaluation:
-        stats: SearchStats = self_recall(index_maccs, sample=0.01)
-        logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-        logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-        index_maccs.save(index_path_maccs)
-
-        # Next construct the index for mixed MACCS and ECFP4 representations
-        vectors = np.vstack(
-            [
-                FingerprintedEntry.from_parts(
-                    None,
-                    maccs_fingerprints[i],
-                    ecfp4_fingerprints[i],
-                    None,
-                    shape_mixed,
-                ).fingerprint
-                for i in range(n)
-            ]
-        )
-        index_mixed = Index(
-            ndim=shape_mixed.nbits,
-            dtype=ScalarKind.B1,
-            metric=CompiledMetric(
-                pointer=tanimoto_conditional.address,
-                kind=MetricKind.Tanimoto,
-                signature=MetricSignature.ArrayArray,
-            ),
-        )
-        index_mixed.add(
-            keys,
-            vectors,
-            log=f"Building {index_path_mixed}",
-            batch_size=100_000,
-        )
-
-        # Optional self-recall evaluation:
-        stats: SearchStats = self_recall(index_mixed, sample=0.01)
-        logger.info(f"Self-recall: {100*stats.mean_recall:.2f} %")
-        logger.info(f"Efficiency: {100*stats.mean_efficiency:.2f} %")
-        index_mixed.save(index_path_mixed)
-
-        # Discard the objects to save some memory
-        dataset.shards[shard_idx].table_cached = None
-        dataset.shards[shard_idx].index_cached = None
-
-
 def mono_index_maccs(dataset: FingerprintedDataset):
-    index_path_maccs = os.path.join("indexes", dataset.dir, "usearch-maccs.usearch")
-    os.makedirs(os.path.join("indexes", dataset.dir), exist_ok=True)
+    index_path_maccs = os.path.join(dataset.dir, "index-maccs.usearch")
+    os.makedirs(os.path.join(dataset.dir), exist_ok=True)
 
     index_maccs = Index(
         ndim=shape_maccs.nbits,
@@ -325,14 +226,14 @@ def mono_index_maccs(dataset: FingerprintedDataset):
 
 
 def mono_index_mixed(dataset: FingerprintedDataset):
-    index_path_mixed = os.path.join("indexes", dataset.dir, "usearch-maccs+ecfp4.usearch")
-    os.makedirs(os.path.join("indexes", dataset.dir), exist_ok=True)
+    index_path_mixed = os.path.join(dataset.dir, "index-maccs-ecfp4.usearch")
+    os.makedirs(os.path.join(dataset.dir), exist_ok=True)
 
     index_mixed = Index(
         ndim=shape_mixed.nbits,
         dtype=ScalarKind.B1,
         metric=CompiledMetric(
-            pointer=tanimoto_conditional.address,
+            pointer=tanimoto_mixed.address,
             kind=MetricKind.Tanimoto,
             signature=MetricSignature.ArrayArray,
         ),
@@ -387,26 +288,24 @@ def mono_index_mixed(dataset: FingerprintedDataset):
         pass
 
 
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
+logger = logging.getLogger(__name__)
+
+
 main_epilog = """
 Examples:
   # Process all available datasets
-  uv run python -m usearch_molecules.prep_encode
+  uv run python -m usearchmolecules.prep_index
 
   # Process specific dataset
-  uv run python -m usearch_molecules.prep_encode --datasets example
-
-  # Skip CDK fingerprints (faster, but no PubChem fingerprints)
-  uv run python -m usearch_molecules.prep_encode --skip-cdk
-
-  # Use specific number of processes
-  uv run python -m usearch_molecules.prep_encode --processes 16
+  uv run python -m usearchmolecules.prep_index --datasets example
 """
 
 
 def main():
     """Main entry point with CLI argument parsing."""
     parser = argparse.ArgumentParser(
-        description="Step 2/5: Add molecular fingerprints to Parquet files",
+        description="Build USearch similarity indexes for molecular fingerprints",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=main_epilog,
     )
@@ -418,45 +317,28 @@ def main():
         default=["example", "pubchem", "gdb13", "real"],
         help="Which datasets to process (default: all available)",
     )
-    parser.add_argument(
-        "--skip-cdk",
-        action="store_true",
-        help="Skip PubChem fingerprints (CDK is slow/requires Java)",
-    )
-    parser.add_argument(
-        "--processes",
-        type=int,
-        default=max(cpu_count() - 4, 1),
-        help=f"Number of parallel processes (default: {max(cpu_count() - 4, 1)})",
-    )
 
     args = parser.parse_args()
 
-    logger.info("Adding molecular fingerprints to Parquet files")
-    logger.info(
-        f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes} | Skip CDK: {args.skip_cdk}"
-    )
+    logger.info("Building USearch similarity indexes")
+    logger.info(f"Datasets: {', '.join(args.datasets)}")
 
-    for dataset in args.datasets:
-        parquet_dir = f"data/{dataset}/parquet"
-        if not os.path.exists(parquet_dir):
-            logger.warning(f"Skipping {dataset}: directory {parquet_dir} not found")
+    for dataset_name in args.datasets:
+        dataset_path = f"data/{dataset_name}"
+        if not os.path.exists(dataset_path):
+            logger.warning(f"Skipping {dataset_name}: directory {dataset_path} not found")
             continue
 
         logger.info("")
-        logger.info(f"Processing dataset: {dataset}")
+        logger.info(f"Processing dataset: {dataset_name}")
 
         try:
-            if not args.skip_cdk:
-                logger.info("Adding PubChem fingerprints (CDK)...")
-                augment_parquet_shards(parquet_dir, augment_with_cdk, args.processes)
-
-            logger.info("Adding MACCS, ECFP4, FCFP4 fingerprints (RDKit)...")
-            augment_parquet_shards(parquet_dir, augment_with_rdkit, args.processes)
-
-            logger.info(f"✓ Successfully processed {dataset}")
+            loaded_dataset = FingerprintedDataset.open(dataset_path)
+            mono_index_maccs(loaded_dataset)
+            mono_index_mixed(loaded_dataset)
+            logger.info(f"✓ Successfully indexed {dataset_name}")
         except Exception as e:
-            logger.error(f"✗ Failed to process {dataset}: {e}", exc_info=True)
+            logger.error(f"✗ Failed to index {dataset_name}: {e}", exc_info=True)
             raise
 
     logger.info("")

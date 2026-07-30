@@ -22,11 +22,10 @@ import pyarrow.parquet as pq
 from usearch.index import Index, Matches, Key
 import stringzilla as sz
 
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.to_fingerprint import (
     smiles_to_maccs_ecfp4_fcfp4,
     FingerprintShape,
     shape_maccs,
-    shape_mixed,
 )
 
 SEED = 42  # For reproducibility

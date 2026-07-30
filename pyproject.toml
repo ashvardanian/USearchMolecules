@@ -3,7 +3,7 @@ build-backend = "setuptools.build_meta"
 requires = ["setuptools>=61.0", "wheel"]
 
 [project]
-authors = [{ name = "Ash Vardanian", email = "ash.vardanian@unum.cloud" }]
+authors = [{name = "Ash Vardanian", email = "ash.vardanian@unum.cloud"}]
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
@@ -11,9 +11,9 @@ classifiers = [
   "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Scientific/Engineering :: Chemistry",
   "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
@@ -27,10 +27,10 @@ keywords = [
   "similarity-search",
   "usearch",
 ]
-license = { text = "Apache-2.0" }
-name = "usearch-molecules"
+license = {text = "Apache-2.0"}
+name = "usearchmolecules"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 version = "1.0.0"
 
 # Minimal dependencies for consuming the dataset (searching, loading)
@@ -38,18 +38,17 @@ dependencies = [
   "usearch>=2",
   "stringzilla>=4",
   "numkong>=7.4.5",
-  "numpy>=2",
-  "pyarrow>=22",
+  "numpy>=2.1",
+  "pyarrow>=25",
   "tqdm>=4",
 ]
 
 # Development dependencies for augmenting/building the dataset
 [project.optional-dependencies]
 dev = [
-  "rdkit>=2023.0",  # Molecule processing and fingerprinting
-  "jpype1>=1.4",    # Chemistry Development Kit (CDK) bindings
-  "numba>=0.62",    # JIT compilation for performance
-  "numkong>=7.4.5", # SIMD-accelerated RMSD for conformer deduplication
+  "rdkit>=2025.03", # Molecule processing and fingerprinting
+  "jpype1>=1.4", # Chemistry Development Kit (CDK) bindings
+  "numba>=0.62", # JIT compilation for performance
   "pytest>=8",
   "pytest-cov",
   "black>=25",
@@ -65,44 +64,39 @@ viz = [
   "ipython_genutils",
 ]
 
-# GPU-accelerated processing with nvMolKit (requires NVIDIA GPU, CUDA 12.9+)
-gpu = [
-  "rdkit>=2025.03.4", # Specific RDKit version for nvMolKit compatibility
-]
-
 # All optional dependencies combined
-all = ["usearch-molecules[dev,viz,gpu]"]
+all = ["usearchmolecules[dev,viz]"]
 
 [project.urls]
 "AWS Open Data" = "https://registry.opendata.aws/usearch-molecules/"
-"Bug Tracker" = "https://github.com/ashvardanian/usearch-molecules/issues"
-Documentation = "https://github.com/ashvardanian/usearch-molecules#readme"
-Homepage = "https://github.com/ashvardanian/usearch-molecules"
-Repository = "https://github.com/ashvardanian/usearch-molecules"
+"Bug Tracker" = "https://github.com/unum-bio/USearchMolecules/issues"
+Documentation = "https://github.com/unum-bio/USearchMolecules#readme"
+Homepage = "https://github.com/unum-bio/USearchMolecules"
+Repository = "https://github.com/unum-bio/USearchMolecules"
 
 [tool.setuptools.packages.find]
 exclude = ["tests*", "stats*"]
-include = ["usearch_molecules*"]
+include = ["usearchmolecules*"]
 where = ["."]
 
 [tool.black]
 line-length = 120
-target-version = ["py310"]
+target-version = ["py312"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py312"
 
 [tool.mypy]
 disallow_untyped_defs = false
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 
 # Pixi configuration for conda-based dependencies
 [tool.pixi.workspace]
 channels = ["conda-forge", "nvidia"]
-name = "usearch-molecules"
+name = "usearchmolecules"
 platforms = ["linux-64"]
 
 # We hardcode compatible versions for RDKit and nvMolKit here to ensure proper GPU support
@@ -113,9 +107,8 @@ python = "3.12.*"
 rdkit = "2025.03.*"
 
 [tool.pixi.pypi-dependencies]
-usearch-molecules = { path = ".", editable = true }
+usearchmolecules = {path = ".", editable = true}
 
 [tool.pixi.tasks]
-conformers = { cmd = "python -m usearch_molecules.prep_conformers", depends-on = [
-] }
-viz = { cmd = "streamlit run streamlit_app.py", depends-on = [] }
+conformers = {cmd = "python -m usearchmolecules.prep_conformers", depends-on = []}
+viz = {cmd = "streamlit run streamlit_app.py", depends-on = []}

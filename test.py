@@ -19,24 +19,17 @@ The -s flag shows print statements, making it clear:
 - Fallback behavior for problematic molecules
 """
 
-import tempfile
-import os
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Any
 
 import pytest
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
 from rdkit import Chem
 
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.to_fingerprint import (
     smiles_to_maccs_ecfp4_fcfp4,
     smiles_to_pubchem,
-    shape_maccs,
-    shape_mixed,
 )
-from usearch_molecules.prep_conformers import (
+from usearchmolecules.prep_conformers import (
     generate_conformer_etkdg,
     optimize_all_conformers_mmff,
     process_batch_to_conformers,
@@ -256,7 +249,7 @@ class TestFingerprintGeneration:
                 assert np.any(pubchem), f"{name}: PubChem fingerprint is all zeros"
 
                 passed.append(name)
-            except Exception as e:
+            except Exception:
                 skipped.append(name)
                 test_results["warnings"].append(f"PubChem: {name} skipped (CDK may be unavailable)")
 

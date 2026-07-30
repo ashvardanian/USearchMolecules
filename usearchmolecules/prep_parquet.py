@@ -14,9 +14,9 @@ Output:
 
 Usage:
 
-    uv run python -m usearch_molecules.prep_parquet
-    uv run python -m usearch_molecules.prep_parquet --datasets example
-    uv run python -m usearch_molecules.prep_parquet --datasets example --processes 8
+    uv run python -m usearchmolecules.prep_parquet
+    uv run python -m usearchmolecules.prep_parquet --datasets example
+    uv run python -m usearchmolecules.prep_parquet --datasets example --processes 8
 """
 
 import os
@@ -29,7 +29,7 @@ from multiprocessing import Process, cpu_count
 import pyarrow as pa
 from stringzilla import File, Strs, Str
 
-from usearch_molecules.dataset import shard_name, write_table, SHARD_SIZE, SEED
+from usearchmolecules.dataset import shard_name, write_table, SHARD_SIZE, SEED
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -304,13 +304,13 @@ def export_parquet_shards(
 main_epilog = """
 Examples:
   # Process all available datasets
-  uv run python -m usearch_molecules.prep_parquet
+  uv run python -m usearchmolecules.prep_parquet
 
   # Process specific dataset
-  uv run python -m usearch_molecules.prep_parquet --datasets example
+  uv run python -m usearchmolecules.prep_parquet --datasets example
 
   # Use specific number of processes
-  uv run python -m usearch_molecules.prep_parquet --processes 16
+  uv run python -m usearchmolecules.prep_parquet --processes 16
 """
 
 

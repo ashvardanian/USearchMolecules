@@ -54,21 +54,21 @@ Energy & Similarity:
 
 Usage:
 
-    uv run python -m usearch_molecules.prep_conformers --datasets example
-    uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 0
-    uv run python -m usearch_molecules.prep_conformers --datasets example --conformers 20 --batch-size 2000
-    uv run python -m usearch_molecules.prep_conformers --datasets example --export-sdf --export-mol2
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
+    uv run python -m usearchmolecules.prep_conformers --datasets example
+    uv run python -m usearchmolecules.prep_conformers --datasets example --optimizations 0
+    uv run python -m usearchmolecules.prep_conformers --datasets example --conformers 20 --batch-size 2000
+    uv run python -m usearchmolecules.prep_conformers --datasets example --export-sdf --export-mol2
+    pixi run python -m usearchmolecules.prep_conformers --datasets example --use-gpu
 
 My defaults for benchmarking:
 
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 100
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 100 --use-gpu
+    pixi run python -m usearchmolecules.prep_conformers --datasets example --batch-size 100
+    pixi run python -m usearchmolecules.prep_conformers --datasets example --batch-size 100 --use-gpu
 
 With larger batches the H100 yields ~30 mols/s and ~300 conf/s (10 conformers, 200 MMFF iterations):
 
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000
-    pixi run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000 --use-gpu
+    pixi run python -m usearchmolecules.prep_conformers --datasets example --batch-size 2000
+    pixi run python -m usearchmolecules.prep_conformers --datasets example --batch-size 2000 --use-gpu
 """
 
 import os
@@ -223,7 +223,7 @@ def optimize_conformer_mmff(
     props = AllChem.MMFFGetMoleculeProperties(mol)
     if props is None:
         # Expected for organometallics and exotic molecules - tracked in stats
-        logger.debug(f"Could not get MMFF properties for molecule")
+        logger.debug("Could not get MMFF properties for molecule")
         return False, float("inf")
 
     ff = AllChem.MMFFGetMoleculeForceField(mol, props, confId=conf_id)
@@ -870,19 +870,19 @@ def augment_parquet_with_conformers(
 main_epilog = """
 Examples:
   # Generate conformers with defaults (10 ETKDG samples, 200 MMFF iterations)
-  uv run python -m usearch_molecules.prep_conformers --datasets example
+  uv run python -m usearchmolecules.prep_conformers --datasets example
 
   # Skip MMFF optimization (ETKDG-only, faster but less accurate)
-  uv run python -m usearch_molecules.prep_conformers --datasets example --optimizations 0
+  uv run python -m usearchmolecules.prep_conformers --datasets example --optimizations 0
 
   # Large batch processing for efficiency
-  uv run python -m usearch_molecules.prep_conformers --datasets example --batch-size 2000
+  uv run python -m usearchmolecules.prep_conformers --datasets example --batch-size 2000
 
   # Enable RMSD deduplication (disabled by default for performance)
-  uv run python -m usearch_molecules.prep_conformers --datasets example --remove-duplicates 1
+  uv run python -m usearchmolecules.prep_conformers --datasets example --remove-duplicates 1
 
   # GPU acceleration
-  uv run python -m usearch_molecules.prep_conformers --datasets example --use-gpu
+  uv run python -m usearchmolecules.prep_conformers --datasets example --use-gpu
 """
 
 

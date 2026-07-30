@@ -14,15 +14,15 @@ from usearch.index import (
     MetricSignature,
 )
 
-from usearch_molecules.dataset import FingerprintedEntry, FingerprintedDataset
+from usearchmolecules.dataset import FingerprintedEntry, FingerprintedDataset
 
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.to_fingerprint import (
     FingerprintShape,
     smiles_to_maccs_ecfp4_fcfp4,
     smiles_to_pubchem,
 )
 
-from usearch_molecules.metrics_numba import (
+from usearchmolecules.metrics_numba import (
     tanimoto_maccs,
     tanimoto_ecfp4,
     tanimoto_mixed,

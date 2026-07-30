@@ -5,23 +5,26 @@ molecules: binary fingerprints (MACCS, PubChem, ECFP4, FCFP4) and 3D conformer
 geometries, indexed with USearch for real-time retrieval at billion scale.
 """
 
-from usearch_molecules.dataset import (
+from importlib.metadata import PackageNotFoundError, version
+
+from usearchmolecules.dataset import (
     FingerprintedDataset,
     FingerprintedEntry,
     FingerprintedShard,
     SHARD_SIZE,
     BATCH_SIZE,
 )
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.to_fingerprint import (
     smiles_to_maccs_ecfp4_fcfp4,
     FingerprintShape,
     shape_maccs,
     shape_mixed,
 )
 
-__version__ = "1.0.0"
-__author__ = "Ash Vardanian"
-__email__ = "ash.vardanian@unum.cloud"
+try:
+    __version__ = version("usearchmolecules")
+except PackageNotFoundError:  # running from a source checkout without an install
+    __version__ = "0.0.0"
 
 __all__ = [
     "FingerprintedDataset",
