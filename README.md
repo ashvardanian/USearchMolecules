@@ -28,12 +28,6 @@ All molecules come with several important categories of information:
 - Hashed circular fingerprints often used for similarity search:
   - __ECFP4__: Extended Connectivity Fingerprint of diameter 4 with __2048__ dimensions.
   - __FCFP4__: Functional Class Fingerprint of diameter 4 with __2048__ dimensions.
-- Curated SMARTS pattern catalogs, each producing one annotation per molecule:
-  - __Pharma alerts__: 2'448 patterns from Eli Lilly, GSK, BMS, Novartis, Pfizer, and AbbVie, combined with academic catalogs from the PAINS, Brenk, NIH, ZINC, Kazius, ChEMBL, and Toxtree projects.
-  - __Functional groups__: __1'000+__ distinct groups combining the Toxtree dictionary, Ertl's IFG algorithm, DataWarrior, and RDKit's Fragments vocabulary, used for descriptor generation and chemical-class labeling.
-  - __3D pharmacophore features__: __150__ base features for hydrogen-bond donors and acceptors, halogen bonds, aromatic ring stacking, hydrophobic groups, ionizable centres, and metal binders, expandable into Ph4FP triplet and quadruplet fingerprints with millions of dimensions.
-  - __Reaction templates__: __500'000+__ SMIRKS templates mined from the USPTO patent corpus, supplemented by the Hartenfeller-58, Schneider BRAINS, and NameRxn named-reaction taxonomies, for retrosynthesis and library enumeration.
-  - __Patent Markush patterns__: __1 to 3 million__ generic patent claim structures extracted via the MarkushGrapher pipeline from bulk USPTO, EPO, JPO, KIPO, and CNIPA patent literature, comparable in scope to the commercial CAS MARPAT corpus of ~1.1M Markush records.
 - Multiple 3D conformations produced computationally:
   - __ETKDG__ initialization with RDKit's experimentally-tuned distance-geometry generator.
   - __MMFF94__ relaxation of each seed by the Merck Molecular Force Field.
@@ -51,31 +45,37 @@ aws s3 ls --no-sign-request s3://usearch-molecules
 
 ## Dataset Structure
 
+Each subset's `parquet/` folder co-locates two shard families at the same input ranges: `*.parquet` with the 2D fingerprints and `*.3D.parquet` with the 3D conformers and shape descriptors.
+A `checksums.sha256` manifest beside them lets you verify a download.
+
 ```sh
 .
 ├── data
 │   ├── pubchem
 │   │   ├── index-maccs.usearch # 18.6 GB
 │   │   ├── index-maccs-ecfp4.usearch # 46.1 GB
-│   │   └── parquet # 30 GB
-│   │       ├── 0000000000-0001000000.parquet # 265 MB
-│   │       ├── 0001000000-0002000000.parquet # 265 MB
-│   │       ├── ... 
-│   │       └── 0115000000-0116000000.parquet # 177 MB
+│   │   ├── checksums.sha256
+│   │   └── parquet # 30 GB 2D + 117 GB 3D
+│   │       ├── 0000000000-0001000000.parquet # 265 MB, 2D fingerprints
+│   │       ├── 0000000000-0001000000.3D.parquet # ~1.0 GB, 3D conformers
+│   │       ├── ...
+│   │       └── 0115000000-0116000000.3D.parquet
 │   ├── gdb13
 │   │   ├── index-maccs.usearch # 157.0 GB
 │   │   ├── index-maccs-ecfp4.usearch # 390.1 GB
-│   │   └── parquet # 189 GB
-│   │       ├── 0000000000-0001000000.parquet # 198 MB
-│   │       ├── 0001000000-0002000000.parquet # 198 MB
-│   │       ├── ... 
-│   │       └── 0977000000-0978000000.parquet # 93 MB
+│   │   ├── checksums.sha256
+│   │   └── parquet # 189 GB 2D + 674 GB 3D
+│   │       ├── 0000000000-0001000000.parquet # 198 MB, 2D fingerprints
+│   │       ├── 0000000000-0001000000.3D.parquet # ~690 MB, 3D conformers
+│   │       ├── ...
+│   │       └── 0977000000-0978000000.3D.parquet
 │   └── real
-│       └── parquet # 477 GB
-│           ├── 0000000000-0001000000.parquet # 262 MB
-│           ├── 0001000000-0002000000.parquet # 262 MB
-│           ├── ... 
-│           └── 6039000000-6040000000.parquet # 108 MB
+│       ├── checksums.sha256
+│       └── parquet # 477 GB 2D + ~7 TB 3D
+│           ├── 0000000000-0001000000.parquet # 262 MB, 2D fingerprints
+│           ├── 0000000000-0001000000.3D.parquet # ~1.2 GB, 3D conformers
+│           ├── ...
+│           └── 6039000000-6040000000.3D.parquet
 └── README.md
 ```
 
@@ -87,7 +87,7 @@ To view the dataset structure, one can use Python:
   $ pip install pyarrow
   $ python
 >>> import pyarrow.parquet as pq
->>> pq.read_table('data/real/parquet/0000000000-0001000000.parquet')
+>>> pq.read_table('data/real/parquet/0000000000-0001000000.parquet')  # 2D fingerprints
 
 pyarrow.Table
 smiles: string not null
@@ -96,6 +96,30 @@ pubchem: fixed_size_binary[111] not null
 ecfp4: fixed_size_binary[256] not null
 fcfp4: fixed_size_binary[256] not null
 ```
+
+The `*.3D.parquet` shards carry one row per conformer — three per molecule, lowest energy first — with the geometry and shape descriptors:
+
+```sh
+>>> pq.read_table('data/pubchem/parquet/0000000000-0001000000.3D.parquet')  # 3D conformers
+
+pyarrow.Table
+input_shard: string          # source 2D shard stem
+input_row: uint64            # row within the source shard
+smiles: string
+conformer_index: uint8       # energy rank, 0 = lowest
+status: uint8
+n_heavy_atoms: uint16
+n_atoms: uint16
+n_bonds: uint16
+molecular_weight: float
+n_conformers: uint8
+conformer_coords: list<halffloat>   # tightly packed (n_atoms, 3), centered frame
+conformer_energy: float             # MMFF94 kcal/mol
+usrcat: list<halffloat>             # 60-dim shape vector; USR is the first 12
+```
+
+Join a conformer back to its 2D fingerprints on `(input_shard, input_row)`.
+Schema-level metadata records provenance: `producer_git_sha`, `num_conformers`, `max_atoms`, `dataset`, `coordinate_frame=centered`, `schema_version`, `dedup=none`.
 
 In a tabular form that will look like:
 
@@ -208,7 +232,7 @@ source .venv/bin/activate
 uv pip install -e ".[all]"
 ```
 
-GPU conformer generation now lives in the separate SmallField producer, so there is no GPU extra here.
+The pip extras are CPU-only; for GPU-accelerated conformer generation, set up the environment via pixi as shown below.
 
 ### Via Pixi for GPU Acceleration
 
@@ -240,34 +264,25 @@ aws s3 sync --no-sign-request s3://usearch-molecules/data/real/ data/real/
 
 #### Choosing a Mirror
 
-The bulk files — Parquet shards and `.usearch` indexes — are tracked with __Git LFS__ and mirrored to several backends.
-The small pointer files live in Git; you pick a mirror by pointing Git LFS at it _before_ pulling — the pointers, and therefore the content hashes, are identical everywhere, so any mirror yields byte-for-byte the same data.
+The dataset lives on three mirrors at identical paths — Parquet shards, `.usearch` indexes, and `.smi` files — so pick whichever is closest or cheapest and fetch it with that backend's own client:
 
 ```sh
-git clone https://github.com/unum-bio/USearchMolecules.git
-cd USearchMolecules
+# AWS Open Data, anonymous
+aws s3 sync --no-sign-request s3://usearch-molecules/data/pubchem/ data/pubchem/
 
-# Pick ONE mirror and run just that line:
-git config lfs.url https://storage.us-central1.nebius.cloud/usearch-molecules                # Nebius, S3-compatible
-git config lfs.url https://huggingface.co/datasets/unum-cloud/USearchMolecules.git/info/lfs  # Hugging Face
-git config lfs.url https://usearch-molecules.s3.amazonaws.com/.git-lfs                       # AWS Open Data
+# Nebius, S3-compatible
+aws s3 sync --endpoint-url https://storage.us-central1.nebius.cloud \
+    s3://usearch-molecules/data/pubchem/ data/pubchem/
 
-git lfs pull --include "data/pubchem/parquet/*"   # fetch just what you need
+# Hugging Face
+hf download unum-cloud/USearchMolecules --repo-type dataset --include "data/pubchem/*" --local-dir data
 ```
 
-You don't need a Git LFS client to grab a single shard — the pointer file already contains its content hash, so you can fetch the object straight from any mirror:
+Every mirror holds byte-for-byte identical files, so the choice is purely about proximity and cost.
+Each dataset ships a `checksums.sha256` manifest beside its shards; verify a download against it with:
 
 ```sh
-oid=$(git show HEAD:data/pubchem/parquet/0000000000-0001000000.3D.parquet | awk '/^oid/{print $2}' | cut -d: -f2)
-aws s3 cp "s3://usearch-molecules/.git-lfs/objects/${oid:0:2}/${oid:2:2}/${oid}" shard.3D.parquet \
-    --endpoint-url https://storage.us-central1.nebius.cloud # …or the AWS / HF object URL
-```
-
-Hugging Face users can equivalently use the native client:
-
-```sh
-huggingface-cli download unum-cloud/USearchMolecules --repo-type dataset \
-    --include "data/pubchem/parquet/*" --local-dir data
+cd data/pubchem && sha256sum -c --ignore-missing checksums.sha256
 ```
 
 You can immediately check if the indexes are readable:

@@ -68,3 +68,6 @@ Makefile
 
 # Logs
 *.log
+
+# Local pipeline scratch — checks, logs, sentinels; never bulk data (that lives on /mnt/data)
+tmp/

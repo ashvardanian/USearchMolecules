@@ -31,7 +31,7 @@ license = {text = "Apache-2.0"}
 name = "usearchmolecules"
 readme = "README.md"
 requires-python = ">=3.12"
-version = "1.0.0"
+version = "2.0.0"
 
 # Minimal dependencies for consuming the dataset (searching, loading)
 dependencies = [
@@ -91,8 +91,8 @@ ignore = ["RUF002", "RUF003"]
 
 [tool.ruff.lint.per-file-ignores]
 # Standalone scripts print and build results imperatively; magic values and prints are fine.
-"test.py" = ["PLR2004"]
 "stats/*.py" = ["PLR2004"]
+"test.py" = ["PLR2004"]
 
 [tool.mypy]
 disallow_untyped_defs = false
