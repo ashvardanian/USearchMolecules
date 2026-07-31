@@ -12,9 +12,9 @@ Learn more:
 """
 
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass
-from typing import Tuple
 
 import numpy as np
 
@@ -22,6 +22,7 @@ import numpy as np
 try:
     from rdkit import Chem
     from rdkit.Chem import AllChem, MACCSkeys
+
     RDKIT_AVAILABLE = True
 except ImportError:
     RDKIT_AVAILABLE = False
@@ -29,7 +30,8 @@ except ImportError:
 
 # JPype is optional, only needed for PubChem fingerprints via CDK
 try:
-    from jpype import isJVMStarted, startJVM, getDefaultJVMPath, JPackage
+    from jpype import JPackage, getDefaultJVMPath, isJVMStarted, startJVM
+
     JPYPE_AVAILABLE = True
 except ImportError:
     JPYPE_AVAILABLE = False
@@ -59,7 +61,7 @@ def molecule_to_fcfp4(x):
 
 def smiles_to_maccs_ecfp4_fcfp4(
     smiles: str,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Convert SMILES to packed binary fingerprints (MACCS, ECFP4, FCFP4).
 
     Args:
@@ -81,7 +83,7 @@ _cdk_smiles_parser = None
 _cdk_fingerprinter = None
 
 
-def smiles_to_pubchem(smiles: str) -> Tuple[np.ndarray]:
+def smiles_to_pubchem(smiles: str) -> tuple[np.ndarray]:
     """Convert SMILES to PubChem fingerprint using Chemistry Development Kit (CDK).
 
     Initializes JVM on first call and caches CDK components for subsequent calls.
@@ -98,22 +100,19 @@ def smiles_to_pubchem(smiles: str) -> Tuple[np.ndarray]:
             "Install with: pip install jpype1 or include 'dev' extras"
         )
 
-    global _cdk
-    global _cdk_smiles_parser
-    global _cdk_fingerprinter
+    # Lazily initialized CDK/JVM singletons, reused across calls.
+    global _cdk, _cdk_smiles_parser, _cdk_fingerprinter  # noqa: PLW0603
 
     if not isJVMStarted():
         cdk_path = os.path.join(os.getcwd(), "cdk-2.2.jar")
-        startJVM(getDefaultJVMPath(), "-Djava.class.path=%s" % cdk_path)
+        startJVM(getDefaultJVMPath(), f"-Djava.class.path={cdk_path}")
         _cdk = JPackage("org").openscience.cdk
 
     if _cdk_smiles_parser is None:
         _cdk_smiles_parser = _cdk.smiles.SmilesParser(_cdk.DefaultChemObjectBuilder.getInstance())
 
     if _cdk_fingerprinter is None:
-        _cdk_fingerprinter = _cdk.fingerprint.PubchemFingerprinter(
-            _cdk.silent.SilentChemObjectBuilder.getInstance()
-        )
+        _cdk_fingerprinter = _cdk.fingerprint.PubchemFingerprinter(_cdk.silent.SilentChemObjectBuilder.getInstance())
 
     molecule = _cdk_smiles_parser.parseSmiles(smiles)
     cdk_fingerprint = _cdk_fingerprinter.getBitFingerprint(molecule)
@@ -135,12 +134,7 @@ class FingerprintShape:
 
     @property
     def nbytes(self) -> int:
-        return (
-            self.include_maccs * 21
-            + self.nbytes_padding
-            + self.include_ecfp4 * 256
-            + self.include_fcfp4 * 256
-        )
+        return self.include_maccs * 21 + self.nbytes_padding + self.include_ecfp4 * 256 + self.include_fcfp4 * 256
 
     @property
     def nbits(self) -> int:

@@ -1,32 +1,29 @@
+import multiprocessing
+import pickle
 from dataclasses import dataclass
 from math import ceil
-import multiprocessing
 
-import pickle
 import numpy as np
 from tqdm import tqdm
-from usearch.eval import self_recall, measure_seconds
+from usearch.eval import measure_seconds
 from usearch.index import (
+    CompiledMetric,
     Index,
     MetricKind,
-    ScalarKind,
-    CompiledMetric,
     MetricSignature,
+    ScalarKind,
 )
 
-from usearch_molecules.dataset import FingerprintedEntry, FingerprintedDataset
-
-from usearch_molecules.to_fingerprint import (
+from usearchmolecules.dataset import FingerprintedDataset, FingerprintedEntry
+from usearchmolecules.metrics_numba import (
+    tanimoto_conditional,
+    tanimoto_ecfp4,
+    tanimoto_maccs,
+    tanimoto_mixed,
+)
+from usearchmolecules.to_fingerprint import (
     FingerprintShape,
     smiles_to_maccs_ecfp4_fcfp4,
-    smiles_to_pubchem,
-)
-
-from usearch_molecules.metrics_numba import (
-    tanimoto_maccs,
-    tanimoto_ecfp4,
-    tanimoto_mixed,
-    tanimoto_conditional,
 )
 
 
@@ -53,7 +50,7 @@ def eval(
     end_to_end_experiments: int = 100,
 ):
     data_size = len(data[0])
-    batch_count = int(ceil(data_size / batch_size))
+    batch_count = ceil(data_size / batch_size)
 
     result = EvalResult(
         add_speed=np.zeros(batch_count),
@@ -76,7 +73,7 @@ def eval(
         slice_vectors = data[2][slice_start:slice_end]
 
         add_time, _ = measure_seconds(
-            lambda: index.add(slice_labels, slice_vectors, threads=num_threads)
+            lambda labels=slice_labels, vectors=slice_vectors: index.add(labels, vectors, threads=num_threads)
         )
         result.add_speed[batch_idx] = batch_size / add_time
 
@@ -86,7 +83,7 @@ def eval(
         search_vectors = data[2][search_indexes]
 
         search_time, search_result = measure_seconds(
-            lambda: index.search(search_vectors, count=recall_at, threads=num_threads)
+            lambda vectors=search_vectors: index.search(vectors, count=recall_at, threads=num_threads)
         )
         result.search_speed[batch_idx] = batch_size / search_time
         result.recall_vector[batch_idx] = search_result.mean_recall(search_labels)
@@ -115,7 +112,7 @@ def eval(
 
 
 def eval_combinations(names, datas, metric, shape, batch_size):
-    for name, data in zip(names, datas):
+    for name, data in zip(names, datas, strict=True):
         if data is None:
             continue
         print("Starting benchmark for:", name)
@@ -147,9 +144,7 @@ if __name__ == "__main__":
 
     shape_maccs = FingerprintShape(include_maccs=True, nbytes_padding=3)
     shape_ecfp4 = FingerprintShape(include_ecfp4=True)
-    shape_mixed = FingerprintShape(
-        include_maccs=True, include_ecfp4=True, nbytes_padding=3
-    )
+    shape_mixed = FingerprintShape(include_maccs=True, include_ecfp4=True, nbytes_padding=3)
 
     path_numba = "stats/numba/"
     path_simsimd = "stats/simsimd/"
@@ -166,15 +161,9 @@ if __name__ == "__main__":
         names_prefixes = path_numba if use_numba else path_simsimd
 
         # MACCS fingerprints
-        data_pubchem_maccs = chunks_pubchem.head(
-            max_molecules, shape=shape_maccs, shuffle=True
-        )
-        data_gdb13_maccs = chunks_gdb13.head(
-            max_molecules, shape=shape_maccs, shuffle=True
-        )
-        data_real_maccs = chunks_real.head(
-            max_molecules, shape=shape_maccs, shuffle=True
-        )
+        data_pubchem_maccs = chunks_pubchem.head(max_molecules, shape=shape_maccs, shuffle=True)
+        data_gdb13_maccs = chunks_gdb13.head(max_molecules, shape=shape_maccs, shuffle=True)
+        data_real_maccs = chunks_real.head(max_molecules, shape=shape_maccs, shuffle=True)
 
         datas_maccs = [data_pubchem_maccs, data_gdb13_maccs, data_real_maccs]
         eval_combinations(
@@ -192,9 +181,7 @@ if __name__ == "__main__":
         )
 
         # ECFP4 fingerprints
-        data_pubchem_ecfp4 = chunks_pubchem.head(
-            max_molecules, shape_ecfp4, shuffle=True
-        )
+        data_pubchem_ecfp4 = chunks_pubchem.head(max_molecules, shape_ecfp4, shuffle=True)
         data_gdb13_ecfp4 = chunks_gdb13.head(max_molecules, shape_ecfp4, shuffle=True)
         data_real_ecfp4 = chunks_real.head(max_molecules, shape_ecfp4, shuffle=True)
 
@@ -214,9 +201,7 @@ if __name__ == "__main__":
         )
 
         # Mixed MACCS+ECFP4 fingerprints
-        data_pubchem_mixed = chunks_pubchem.head(
-            max_molecules, shape_mixed, shuffle=True
-        )
+        data_pubchem_mixed = chunks_pubchem.head(max_molecules, shape_mixed, shuffle=True)
         data_gdb13_mixed = chunks_gdb13.head(max_molecules, shape_mixed, shuffle=True)
         data_real_mixed = chunks_real.head(max_molecules, shape_mixed, shuffle=True)
 

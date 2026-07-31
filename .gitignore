@@ -43,13 +43,15 @@ htmlcov/
 .tox/
 *.cover
 
-# Type checking
+# Linting and type checking
+.ruff_cache/
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
 # Data and build artifacts
-data/
+data/*
+!data/.gitkeep
 encode/
 build_debug/
 build_release/
@@ -66,3 +68,6 @@ Makefile
 
 # Logs
 *.log
+
+# Local pipeline scratch — checks, logs, sentinels; never bulk data (that lives on /mnt/data)
+tmp/

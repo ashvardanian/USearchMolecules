@@ -17,19 +17,19 @@ Format:
 
 Usage:
 
-    uv run python -m usearch_molecules.prep_smiles
-    uv run python -m usearch_molecules.prep_smiles --datasets example
-    uv run python -m usearch_molecules.prep_smiles --datasets example pubchem
+    uv run python -m usearchmolecules.prep_smiles
+    uv run python -m usearchmolecules.prep_smiles --datasets example
+    uv run python -m usearchmolecules.prep_smiles --datasets example pubchem
 """
 
-import os
-import logging
 import argparse
+import logging
+import os
 
+from stringzilla import File
 from tqdm import tqdm
-from stringzilla import File, Str
 
-from usearch_molecules.dataset import FingerprintedDataset
+from usearchmolecules.dataset import FingerprintedDataset
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(message)s", datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
@@ -58,10 +58,10 @@ def export_smiles(data):
 main_epilog = """
 Examples:
   # Process all available datasets
-  uv run python -m usearch_molecules.prep_smiles
+  uv run python -m usearchmolecules.prep_smiles
 
   # Process specific dataset
-  uv run python -m usearch_molecules.prep_smiles --datasets example
+  uv run python -m usearchmolecules.prep_smiles --datasets example
 """
 
 

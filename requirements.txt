@@ -1,7 +1,0 @@
-# Minimal dependencies for consuming the dataset (searching, loading)
-# For other use cases, install with: uv pip install -e ".[dev]" or ".[viz]" or ".[gpu]"
-usearch
-stringzilla
-numpy
-pyarrow
-tqdm
