@@ -79,6 +79,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from tqdm import tqdm
 
+from usearchmolecules.dataset import is_fingerprint_shard
+
 try:
     import numkong as nk
     from rdkit import Chem, RDLogger
@@ -851,8 +853,8 @@ def main():
         "--datasets",
         nargs="+",
         choices=["example", "pubchem", "gdb13", "real"],
-        default=["example"],
-        help="Which datasets to process (default: example)",
+        default=["example", "pubchem", "gdb13", "real"],
+        help="Which datasets to process (default: all available)",
     )
     parser.add_argument(
         "--batch-size",
@@ -927,7 +929,7 @@ def main():
         logger.info("")
         logger.info(f"Processing dataset: {dataset}")
 
-        filenames = sorted([f for f in os.listdir(parquet_dir) if f.endswith(".parquet")])
+        filenames = sorted(f for f in os.listdir(parquet_dir) if is_fingerprint_shard(f))
         dataset_stats = ConformerStats()
 
         for filename in filenames:

@@ -104,9 +104,16 @@ def smiles_to_pubchem(smiles: str) -> tuple[np.ndarray]:
     global _cdk, _cdk_smiles_parser, _cdk_fingerprinter  # noqa: PLW0603
 
     if not isJVMStarted():
-        cdk_path = os.path.join(os.getcwd(), "cdk-2.2.jar")
+        # Beside this module, not beside the caller: resolving against the working directory starts
+        # the JVM with an empty classpath from anywhere but the repository root, and every molecule
+        # then fails in a way the caller's per-molecule `except` turns into an all-zero column.
+        cdk_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cdk-2.2.jar")
+        if not os.path.exists(cdk_path):
+            raise FileNotFoundError(f"CDK jar not found at {cdk_path}; PubChem fingerprints need it")
         startJVM(getDefaultJVMPath(), f"-Djava.class.path={cdk_path}")
         _cdk = JPackage("org").openscience.cdk
+        if not hasattr(_cdk, "smiles"):
+            raise RuntimeError(f"CDK classes not reachable from {cdk_path}; the JVM started without it")
 
     if _cdk_smiles_parser is None:
         _cdk_smiles_parser = _cdk.smiles.SmilesParser(_cdk.DefaultChemObjectBuilder.getInstance())

@@ -88,6 +88,15 @@ class FingerprintedEntry:
         return FingerprintedEntry(smiles=smiles, fingerprint=fingerprint)
 
 
+def is_fingerprint_shard(filename: str) -> bool:
+    """Whether a `parquet/` entry is a 2D fingerprint shard rather than a `*.3D.parquet` conformer shard.
+
+    Both families share the directory and the stem, so a bare `*.parquet` glob picks up conformer shards
+    too — and their stems parse as a duplicate `first_key` pointing at a `.3D.smi` that does not exist.
+    """
+    return filename.endswith(".parquet") and ".3D." not in filename
+
+
 def shard_name(directory: str, from_index: int, to_index: int, kind: str):
     """Generate standardized shard filename with zero-padded indices."""
     return os.path.join(directory, kind, f"{from_index:0>10}-{to_index:0>10}.{kind}")
@@ -175,14 +184,11 @@ class FingerprintedDataset:
             return FingerprintedDataset(directory=None, shards=[], shape=shape)
 
         shards = []
-        filenames = sorted(os.listdir(os.path.join(directory, "parquet")))
+        filenames = sorted(f for f in os.listdir(os.path.join(directory, "parquet")) if is_fingerprint_shard(f))
         if max_shards:
             filenames = filenames[:max_shards]
 
         for filename in tqdm(filenames, unit="shard"):
-            if not filename.endswith(".parquet"):
-                continue
-
             stem = filename.removesuffix(".parquet")
             shards.append(
                 FingerprintedShard(
