@@ -127,10 +127,19 @@ def eval_combinations(names, datas, metric, shape, batch_size):
             pickle.dump(eval_result, f)
 
 
-names_maccs = ["MACCS: PubChem", "MACCS: GDB13", "MACCS: REAL"]
-names_ecfp4 = ["ECFP4: PubChem", "ECFP4: GDB13", "ECFP4: REAL"]
-names_mixed = ["MACCS+ECFP4: PubChem", "MACCS+ECFP4: GDB13", "MACCS+ECFP4: REAL"]
-names_conditional = ["MACCS*ECFP4: PubChem", "MACCS*ECFP4: GDB13", "MACCS*ECFP4: REAL"]
+# Label and directory of every subset benchmarked, in report order. Adding one here carries it
+# through the four label lists, the opens and every `datas=` argument below.
+subsets = {
+    "PubChem": "data/pubchem",
+    "GDB13": "data/gdb13",
+    "REAL": "data/real",
+    "Example": "data/example",
+}
+
+names_maccs = [f"MACCS: {label}" for label in subsets]
+names_ecfp4 = [f"ECFP4: {label}" for label in subsets]
+names_mixed = [f"MACCS+ECFP4: {label}" for label in subsets]
+names_conditional = [f"MACCS*ECFP4: {label}" for label in subsets]
 
 batch_size = 100_000
 max_molecules = 10_000_000
@@ -138,9 +147,10 @@ max_shards = 15
 num_threads = multiprocessing.cpu_count()
 
 if __name__ == "__main__":
-    chunks_pubchem = FingerprintedDataset.open("data/pubchem", max_shards=max_shards)
-    chunks_gdb13 = FingerprintedDataset.open("data/gdb13", max_shards=max_shards)
-    chunks_real = FingerprintedDataset.open("data/real", max_shards=max_shards)
+    chunks = {
+        label: FingerprintedDataset.open(directory, max_shards=max_shards)
+        for label, directory in subsets.items()
+    }
 
     shape_maccs = FingerprintShape(include_maccs=True, nbytes_padding=3)
     shape_ecfp4 = FingerprintShape(include_ecfp4=True)
@@ -161,11 +171,7 @@ if __name__ == "__main__":
         names_prefixes = path_numba if use_numba else path_simsimd
 
         # MACCS fingerprints
-        data_pubchem_maccs = chunks_pubchem.head(max_molecules, shape=shape_maccs, shuffle=True)
-        data_gdb13_maccs = chunks_gdb13.head(max_molecules, shape=shape_maccs, shuffle=True)
-        data_real_maccs = chunks_real.head(max_molecules, shape=shape_maccs, shuffle=True)
-
-        datas_maccs = [data_pubchem_maccs, data_gdb13_maccs, data_real_maccs]
+        datas_maccs = [chunk.head(max_molecules, shape=shape_maccs, shuffle=True) for chunk in chunks.values()]
         eval_combinations(
             names=[names_prefixes + x for x in names_maccs],
             datas=datas_maccs,
@@ -181,11 +187,7 @@ if __name__ == "__main__":
         )
 
         # ECFP4 fingerprints
-        data_pubchem_ecfp4 = chunks_pubchem.head(max_molecules, shape_ecfp4, shuffle=True)
-        data_gdb13_ecfp4 = chunks_gdb13.head(max_molecules, shape_ecfp4, shuffle=True)
-        data_real_ecfp4 = chunks_real.head(max_molecules, shape_ecfp4, shuffle=True)
-
-        datas_ecfp4 = [data_pubchem_ecfp4, data_gdb13_ecfp4, data_real_ecfp4]
+        datas_ecfp4 = [chunk.head(max_molecules, shape_ecfp4, shuffle=True) for chunk in chunks.values()]
         eval_combinations(
             names=[names_prefixes + x for x in names_ecfp4],
             datas=datas_ecfp4,
@@ -201,11 +203,7 @@ if __name__ == "__main__":
         )
 
         # Mixed MACCS+ECFP4 fingerprints
-        data_pubchem_mixed = chunks_pubchem.head(max_molecules, shape_mixed, shuffle=True)
-        data_gdb13_mixed = chunks_gdb13.head(max_molecules, shape_mixed, shuffle=True)
-        data_real_mixed = chunks_real.head(max_molecules, shape_mixed, shuffle=True)
-
-        datas_mixed = [data_pubchem_mixed, data_gdb13_mixed, data_real_mixed]
+        datas_mixed = [chunk.head(max_molecules, shape_mixed, shuffle=True) for chunk in chunks.values()]
         eval_combinations(
             names=[names_prefixes + x for x in names_mixed],
             datas=datas_mixed,

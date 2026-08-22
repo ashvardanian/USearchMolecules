@@ -26,6 +26,7 @@ from usearch.index import Index, Key, Matches
 from usearchmolecules.to_fingerprint import (
     FingerprintShape,
     shape_maccs,
+    shape_mixed,
     smiles_to_maccs_ecfp4_fcfp4,
 )
 
@@ -212,7 +213,7 @@ class FingerprintedDataset:
     def shard_containing(self, key: int) -> FingerprintedShard:
         """Find the shard containing a given key/index, or raise if none does."""
         for shard in self.shards:
-            if shard.first_key <= key <= shard.first_key + SHARD_SIZE:
+            if shard.first_key <= key < shard.first_key + SHARD_SIZE:
                 return shard
         raise KeyError(f"No shard contains key {key}")
 
@@ -243,7 +244,7 @@ class FingerprintedDataset:
         keys = np.arange(len(entries), dtype=Key)
         fingers = np.vstack([entry.fingerprint for entry in entries])
         if shuffle:
-            permutation = np.random.permutation(len(entries))
+            permutation = np.random.default_rng(SEED).permutation(len(entries))
             smiles, keys, fingers = smiles[permutation], keys[permutation], fingers[permutation]
         return smiles, keys, fingers
 

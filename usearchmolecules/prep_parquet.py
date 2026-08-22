@@ -7,7 +7,9 @@ Input:
     - PubChem: CID-SMILES.gz (tab-delimited, CID + SMILES)
     - GDB13: gdb13.tgz (13 .smi files)
     - Enamine REAL: *.cxsmiles.bz2 (extended SMILES with metadata)
-    - Example: Pre-existing .smi files
+
+The `example` subset is drawn from the three above rather than converted from a raw
+source, so `prep_sample` builds it instead of this script.
 
 Output:
     - data/{dataset}/parquet/*.parquet - Shards with 'smiles' column
@@ -15,8 +17,8 @@ Output:
 Usage:
 
     uv run python -m usearchmolecules.prep_parquet
-    uv run python -m usearchmolecules.prep_parquet --datasets example
-    uv run python -m usearchmolecules.prep_parquet --datasets example --processes 8
+    uv run python -m usearchmolecules.prep_parquet --datasets pubchem
+    uv run python -m usearchmolecules.prep_parquet --datasets pubchem --processes 8
 """
 
 import argparse
@@ -73,21 +75,6 @@ def _shuffled_lines(paths: list[str]) -> Strs:
         text = str(Str(File(path)))
         chunks.append(text if text.endswith("\n") else text + "\n")
     return Str("".join(chunks)).splitlines().shuffled(SEED)
-
-
-def example(directory: os.PathLike) -> RawDataset:
-    """Load the bundled example .smi shards into one shuffled tape."""
-    filenames = (
-        "0000000000-0001000000.smi",
-        "0001000000-0002000000.smi",
-    )
-    lines = _shuffled_lines([os.path.join(directory, "smiles", filename) for filename in filenames])
-
-    def extractor(row: str) -> str | None:
-        row = row.strip("\n")
-        return row if row else None
-
-    return RawDataset(lines=lines, extractor=extractor)
 
 
 def pubchem(directory: os.PathLike, filename: str = "CID-SMILES") -> RawDataset:
@@ -283,8 +270,8 @@ def main():
     parser.add_argument(
         "--datasets",
         nargs="+",
-        choices=["example", "pubchem", "gdb13", "real"],
-        default=["example", "pubchem", "gdb13", "real"],
+        choices=["pubchem", "gdb13", "real"],
+        default=["pubchem", "gdb13", "real"],
         help="Which datasets to process (default: all available)",
     )
     parser.add_argument(
@@ -300,7 +287,6 @@ def main():
     logger.info(f"Datasets: {', '.join(args.datasets)} | Processes: {args.processes}")
 
     dataset_loaders = {
-        "example": lambda: example("data/example"),
         "pubchem": lambda: pubchem("data/pubchem"),
         "gdb13": lambda: gdb13("data/gdb13"),
         "real": lambda: real("data/real"),

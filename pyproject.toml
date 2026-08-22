@@ -67,10 +67,10 @@ all = ["usearchmolecules[dev,viz]"]
 
 [project.urls]
 "AWS Open Data" = "https://registry.opendata.aws/usearch-molecules/"
-"Bug Tracker" = "https://github.com/unum-bio/USearchMolecules/issues"
-Documentation = "https://github.com/unum-bio/USearchMolecules#readme"
-Homepage = "https://github.com/unum-bio/USearchMolecules"
-Repository = "https://github.com/unum-bio/USearchMolecules"
+"Bug Tracker" = "https://github.com/unum-science/USearchMolecules/issues"
+Documentation = "https://github.com/unum-science/USearchMolecules#readme"
+Homepage = "https://github.com/unum-science/USearchMolecules"
+Repository = "https://github.com/unum-science/USearchMolecules"
 
 [tool.setuptools.packages.find]
 exclude = ["tests*", "stats*"]

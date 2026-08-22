@@ -84,7 +84,7 @@ from usearchmolecules.dataset import is_fingerprint_shard
 try:
     import numkong as nk
     from rdkit import Chem, RDLogger
-    from rdkit.Chem import AllChem
+    from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
 except ImportError:
     print("Error: RDKit and NumKong are required for conformer generation")
     print("Install with: uv pip install 'usearch-molecules[dev]'")
@@ -696,6 +696,129 @@ def process_batch_to_conformers(
     assert len(energies_list) == batch_size, f"Energy size mismatch: {len(energies_list)} != {batch_size}"
 
     return mol_blocks, energies_list, stats
+
+
+# region Shard Emission
+
+# The schema SmallField writes, so a fallback shard is interchangeable with a generated one.
+CONFORMER_SCHEMA = pa.schema([
+    pa.field("input_shard", pa.string(), nullable=False),
+    pa.field("input_row", pa.uint64(), nullable=False),
+    pa.field("smiles", pa.string(), nullable=False),
+    pa.field("conformer_index", pa.uint8(), nullable=False),
+    pa.field("status", pa.uint8(), nullable=False),
+    pa.field("n_heavy_atoms", pa.uint16()),
+    pa.field("n_atoms", pa.uint16()),
+    pa.field("n_bonds", pa.uint16()),
+    pa.field("molecular_weight", pa.float32()),
+    pa.field("n_conformers", pa.uint8()),
+    pa.field("conformer_coords", pa.list_(pa.float16())),
+    pa.field("conformer_energy", pa.float32()),
+    pa.field("usrcat", pa.list_(pa.float16())),
+])
+
+# `conformer_status_t`, kept in step with SmallField's append-only enum.
+STATUS_SUCCESS = 0
+STATUS_MMFF_UNCONVERGED = 2
+STATUS_INVALID_SMILES = 3
+STATUS_TOO_MANY_ATOMS = 4
+MAX_ATOMS = 192
+
+
+def molecule_to_conformer_rows(
+    smiles: str,
+    input_shard: str,
+    input_row: int,
+    num_conformers: int,
+    optimization_iters: int,
+    random_seed: int,
+) -> list[dict]:
+    """Generate one molecule's conformers as rows in SmallField's schema.
+
+    A refused molecule keeps a single row carrying its status and null geometry, which is the shape
+    the generated shards use and what `validate_shard.py` checks for.
+    """
+
+    def refusal(status: int) -> list[dict]:
+        return [{
+            "input_shard": input_shard, "input_row": input_row, "smiles": smiles,
+            "conformer_index": 0, "status": status, "n_heavy_atoms": None, "n_atoms": None,
+            "n_bonds": None, "molecular_weight": None, "n_conformers": None,
+            "conformer_coords": None, "conformer_energy": None, "usrcat": None,
+        }]
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return refusal(STATUS_INVALID_SMILES)
+    if mol.GetNumAtoms() > MAX_ATOMS:
+        return refusal(STATUS_TOO_MANY_ATOMS)
+
+    try:
+        mol_h, conformer_ids = generate_conformer_etkdg(mol, num_conformers, random_seed)
+        if not conformer_ids:
+            return refusal(STATUS_MMFF_UNCONVERGED)
+        energies = optimize_all_conformers_mmff(mol_h, optimization_iters) if optimization_iters else [
+            (cid, True, 0.0) for cid in conformer_ids
+        ]
+    except Exception:
+        return refusal(STATUS_MMFF_UNCONVERGED)
+
+    usable = [entry for entry in energies if np.isfinite(entry[2])][:num_conformers]
+    if not usable:
+        return refusal(STATUS_MMFF_UNCONVERGED)
+
+    heavy = mol.GetNumAtoms()
+    atoms = mol_h.GetNumAtoms()
+    bonds = mol_h.GetNumBonds()
+    weight = float(Descriptors.MolWt(mol_h))
+    rows = []
+    for rank, (conformer_id, _, energy) in enumerate(usable):
+        positions = mol_h.GetConformer(conformer_id).GetPositions()
+        positions = positions - positions.mean(axis=0)
+        try:
+            shape = list(rdMolDescriptors.GetUSRCAT(mol_h, confId=conformer_id))
+        except Exception:
+            shape = None
+        rows.append({
+            "input_shard": input_shard, "input_row": input_row, "smiles": smiles,
+            "conformer_index": rank, "status": STATUS_SUCCESS, "n_heavy_atoms": heavy,
+            "n_atoms": atoms, "n_bonds": bonds, "molecular_weight": weight,
+            "n_conformers": len(usable),
+            "conformer_coords": positions.astype(np.float16).ravel().tolist(),
+            "conformer_energy": float(energy),
+            "usrcat": None if shape is None else np.asarray(shape, dtype=np.float16).tolist(),
+        })
+    return rows
+
+
+def write_conformer_shard(
+    parquet_path: str,
+    num_conformers: int = 3,
+    optimization_iters: int = 200,
+    random_seed: int = 42,
+) -> int:
+    """Write `<stem>.3D.parquet` beside a fingerprint shard, in SmallField's schema."""
+
+    stem = os.path.basename(parquet_path).removesuffix(".parquet")
+    destination = os.path.join(os.path.dirname(parquet_path), f"{stem}.3D.parquet")
+    if os.path.exists(destination + ".encoded"):
+        logger.info(f"Skipping {stem}: already generated")
+        return 0
+
+    smiles_rows = pq.read_table(parquet_path, columns=["smiles"])["smiles"].to_pylist()
+    rows = []
+    for input_row, smiles in enumerate(tqdm(smiles_rows, unit="mol", desc=stem)):
+        rows.extend(molecule_to_conformer_rows(
+            smiles, stem, input_row, num_conformers, optimization_iters, random_seed))
+
+    pq.write_table(pa.Table.from_pylist(rows, schema=CONFORMER_SCHEMA), destination, compression="snappy")
+    with open(destination + ".encoded", "w") as handle:
+        handle.write("ok\n")
+    logger.info(f"Wrote {destination}: {len(rows):,} conformer rows")
+    return len(rows)
+
+
+# endregion Shard Emission
 
 
 def augment_parquet_with_conformers(

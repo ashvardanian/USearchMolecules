@@ -5,9 +5,16 @@ type: software
 license: Apache-2.0
 version: 2.0.0
 date-released: "2026-07-31"
-repository-code: https://github.com/unum-bio/USearchMolecules
+repository-code: https://github.com/unum-science/USearchMolecules
 url: https://ashvardanian.com/posts/usearch-molecules/
-doi: 10.5281/zenodo.21613664
+doi: 10.5281/zenodo.21613663
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21719474
+    description: "v2.0 — fingerprints and 3D conformer geometries"
+  - type: doi
+    value: 10.5281/zenodo.21613664
+    description: "v0.1 — fingerprints only"
 abstract: >-
   Large chem-informatics dataset of 7'131'914'291 small molecules with up to 50 heavy atoms,
   aggregated from PubChem, GDB13, and Enamine REAL, and enriched with machine-searchable
