@@ -52,6 +52,7 @@ dmypy.json
 # Data and build artifacts
 data/*
 !data/.gitkeep
+!data/README.md
 encode/
 build_debug/
 build_release/
