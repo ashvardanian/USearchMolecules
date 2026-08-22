@@ -59,7 +59,6 @@ dev = [
 # Visualization via StreamLit GUI
 viz = [
   "streamlit>=1.37",
-  "py3Dmol",
 ]
 
 # All optional dependencies combined
@@ -70,6 +69,7 @@ all = ["usearchmolecules[dev,viz]"]
 "Bug Tracker" = "https://github.com/unum-science/USearchMolecules/issues"
 Documentation = "https://github.com/unum-science/USearchMolecules#readme"
 Homepage = "https://github.com/unum-science/USearchMolecules"
+"Hugging Face" = "https://huggingface.co/datasets/unum-cloud/USearchMolecules"
 Repository = "https://github.com/unum-science/USearchMolecules"
 
 [tool.setuptools.packages.find]
