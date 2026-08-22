@@ -282,6 +282,15 @@ results_smiles = [r[1] for r in results]
 results_scores = [r[2] for r in results]
 ```
 
+Every key also carries its stored geometry, so a hit can be rendered or aligned without re-running a force field.
+`conformer` returns the molecule's lowest-energy conformer as `(xyz, energy)`, or `None` where the pipeline produced none:
+
+```py
+xyz, energy = data.conformer(results_keys[0])   # (n_atoms, 3) float16, MMFF94 kcal/mol
+```
+
+Coordinates follow the atom order of the largest fragment after `AddHs`, so they line up with a molecule rebuilt from the matching `smiles`.
+
 ## Exploring Dataset via Graphical Interface
 
 The dataset also comes with a graphical sandbox implemented with StreamLit and 3DMol.js to help visualize similarities between molecules.

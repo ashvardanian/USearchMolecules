@@ -18,6 +18,7 @@ from itertools import islice
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 import stringzilla as sz
 from tqdm import tqdm
@@ -117,6 +118,25 @@ def write_table(table: pa.Table, path_out: os.PathLike):
 
 
 @dataclass
+class ShardConformers:
+    """Lowest-energy stored conformer of every molecule in one shard, in row order.
+
+    Row `i` occupies `coords[offsets[i] : offsets[i + 1]]` as tightly packed xyz triplets in the
+    centered frame. An empty slice means the pipeline produced no geometry for that molecule.
+    """
+
+    offsets: np.ndarray
+    coords: np.ndarray
+    energies: np.ndarray
+
+    def __getitem__(self, row: int) -> tuple[np.ndarray, float] | None:
+        start, end = int(self.offsets[row]), int(self.offsets[row + 1])
+        if start == end:
+            return None
+        return self.coords[start:end].reshape(-1, 3), float(self.energies[row])
+
+
+@dataclass
 class FingerprintedShard:
     """Potentially cached table and smiles path containing up to `SHARD_SIZE` entries."""
 
@@ -125,8 +145,10 @@ class FingerprintedShard:
 
     table_path: os.PathLike
     smiles_path: os.PathLike
+    conformers_path: os.PathLike
     table_cached: pa.Table | None = None
     smiles_caches: sz.Strs | None = None
+    conformers_cached: ShardConformers | None = None
 
     @property
     def is_complete(self) -> bool:
@@ -155,6 +177,36 @@ class FingerprintedShard:
         if not self.smiles_caches:
             self.smiles_caches = sz.Str(sz.File(self.smiles_path)).splitlines()
         return self.smiles_caches
+
+    def load_conformers(self) -> ShardConformers:
+        """Read the `*.3D.parquet` sibling, keeping each molecule's lowest-energy conformer.
+
+        Read whole rather than sought into: the shards carry no Parquet page index, so reaching one
+        molecule decodes every row before it anyway. Costs a few hundred megabytes per shard.
+        """
+        if self.conformers_cached is None:
+            chunks: list[np.ndarray] = []
+            lengths: list[np.ndarray] = []
+            energies: list[np.ndarray] = []
+            for batch in pq.ParquetFile(self.conformers_path).iter_batches(
+                batch_size=BATCH_SIZE,
+                columns=["conformer_index", "conformer_energy", "conformer_coords"],
+            ):
+                lowest = batch.filter(pc.equal(batch["conformer_index"], 0))
+                coords = lowest["conformer_coords"]
+                # `flatten` drops the null lists entirely, so lengths must be filled independently.
+                chunks.append(np.asarray(coords.flatten(), dtype=np.float16))
+                lengths.append(pc.fill_null(pc.list_value_length(coords), 0).to_numpy(zero_copy_only=False))
+                energies.append(pc.fill_null(lowest["conformer_energy"], np.nan).to_numpy(zero_copy_only=False))
+
+            offsets = np.zeros(sum(len(part) for part in lengths) + 1, dtype=np.int64)
+            np.cumsum(np.concatenate(lengths), dtype=np.int64, out=offsets[1:])
+            self.conformers_cached = ShardConformers(
+                offsets=offsets,
+                coords=np.concatenate(chunks),
+                energies=np.concatenate(energies).astype(np.float32),
+            )
+        return self.conformers_cached
 
 
 @dataclass
@@ -197,6 +249,7 @@ class FingerprintedDataset:
                     name=stem,
                     table_path=os.path.join(directory, "parquet", stem + ".parquet"),
                     smiles_path=os.path.join(directory, "smiles", stem + ".smi"),
+                    conformers_path=os.path.join(directory, "parquet", stem + ".3D.parquet"),
                 )
             )
 
@@ -206,7 +259,7 @@ class FingerprintedDataset:
         if shape:
             index_path = os.path.join(directory, shape.index_name)
             if os.path.exists(index_path):
-                index = Index.restore(index_path)
+                index = Index.restore(index_path, view=True)
 
         return FingerprintedDataset(directory=directory, shards=shards, shape=shape, index=index)
 
@@ -290,6 +343,15 @@ class FingerprintedDataset:
             filtered_results.append((match.key, result, match.distance))
 
         return filtered_results
+
+    def conformer(self, key: int) -> tuple[np.ndarray, float] | None:
+        """Lowest-energy stored conformer for `key` as `(xyz, energy)`, or None when none was produced.
+
+        Coordinates follow the atom order of the molecule's largest fragment after `AddHs`, so they
+        line up with an RDKit molecule rebuilt from the `smiles` column.
+        """
+        shard = self.shard_containing(key)
+        return shard.load_conformers()[int(key - shard.first_key)]
 
     def __len__(self) -> int:
         return len(self.index)
