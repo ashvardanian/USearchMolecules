@@ -33,10 +33,11 @@ MMFF94 Limitations & Fallback Behavior:
     4. Tracks failure in stats.molecules_failed (visible in progress bar)
     5. Continues processing remaining molecules
 
-    Expected failure rates:
-    - Drug-like molecules: ~5% (high MMFF coverage)
-    - PubChem: ~15% (includes some organometallics)
-    - Enamine REAL: ~30% (many metal catalysts)
+    Observed failure rates, molecules yielding no conformer at all:
+    - GDB13: 0%
+    - Enamine REAL: 0.01%
+    - PubChem: 2.1%, concentrated in molecules above 100 atoms rather than in
+      any element class; yield stays near 99.95% below 75 atoms
 
     Recommendation:
     - Use --optimizations for drug discovery (high success rate)

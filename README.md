@@ -47,7 +47,7 @@ It is published on three interchangeable mirrors — [AWS Open Data](https://reg
 ## Dataset Structure
 
 Each subset's `parquet/` folder co-locates two shard families at the same input ranges: `*.parquet` with the 2D fingerprints and `*.3D.parquet` with the 3D conformers and shape descriptors.
-A `checksums.sha256` manifest beside them lets you verify a download.
+Every mirror verifies content on transfer, so a completed download needs no separate manifest.
 
 ```sh
 .
@@ -55,7 +55,6 @@ A `checksums.sha256` manifest beside them lets you verify a download.
 │   ├── pubchem
 │   │   ├── index-maccs.usearch # 18.6 GB
 │   │   ├── index-maccs-ecfp4.usearch # 46.1 GB
-│   │   ├── checksums.sha256
 │   │   └── parquet # 30 GB 2D + 117 GB 3D
 │   │       ├── 0000000000-0001000000.parquet # 265 MB, 2D fingerprints
 │   │       ├── 0000000000-0001000000.3D.parquet # ~1.0 GB, 3D conformers
@@ -64,15 +63,13 @@ A `checksums.sha256` manifest beside them lets you verify a download.
 │   ├── gdb13
 │   │   ├── index-maccs.usearch # 157.0 GB
 │   │   ├── index-maccs-ecfp4.usearch # 390.1 GB
-│   │   ├── checksums.sha256
 │   │   └── parquet # 189 GB 2D + 674 GB 3D
 │   │       ├── 0000000000-0001000000.parquet # 198 MB, 2D fingerprints
 │   │       ├── 0000000000-0001000000.3D.parquet # ~690 MB, 3D conformers
 │   │       ├── ...
 │   │       └── 0977000000-0978000000.3D.parquet
 │   └── real
-│       ├── checksums.sha256
-│       └── parquet # 477 GB 2D + ~7 TB 3D
+│       └── parquet # 1.5 TB 2D + 6.6 TB 3D
 │           ├── 0000000000-0001000000.parquet # 262 MB, 2D fingerprints
 │           ├── 0000000000-0001000000.3D.parquet # ~1.2 GB, 3D conformers
 │           ├── ...
@@ -142,7 +139,6 @@ It carries everything the larger subsets do — fingerprints, conformers, SMILES
     └── example # 4.0 GB
         ├── index-maccs.usearch # 329 MB
         ├── index-maccs-ecfp4.usearch # 817 MB
-        ├── checksums.sha256
         ├── parquet # 498 MB 2D + 2.2 GB 3D
         │   ├── 0000000000-0001000000.parquet # 249 MB, 2D fingerprints
         │   ├── 0000000000-0001000000.3D.parquet # 1.1 GB, 3D conformers
@@ -247,11 +243,6 @@ hf download unum-cloud/USearchMolecules --repo-type dataset --include "data/pubc
 ```
 
 Every mirror holds byte-for-byte identical files, so the choice is purely about proximity and cost.
-Each dataset ships a `checksums.sha256` manifest beside its shards; verify a download against it with:
-
-```sh
-cd data/pubchem && sha256sum -c --ignore-missing checksums.sha256
-```
 
 You can immediately check if the indexes are readable:
 
